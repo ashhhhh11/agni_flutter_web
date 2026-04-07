@@ -529,7 +529,9 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  children: [
+              children: [
+                    _buildTalkingAvatar(),
+                    const SizedBox(height: 14),
                     _buildWaveform(),
                     const SizedBox(height: 20),
                     // Language display
@@ -637,6 +639,64 @@ class _AgniLandingPageState extends State<AgniLandingPage>
           }),
         ),
       ),
+    );
+  }
+
+  Widget _buildTalkingAvatar() {
+    return AnimatedBuilder(
+      animation: _waveController,
+      builder: (_, __) {
+        final pulse = 0.08 + (_waveController.value * 0.12);
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              width: 86,
+              height: 86,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: AgniColors.grad,
+                boxShadow: [
+                  BoxShadow(
+                    color: AgniColors.oceanBright.withOpacity(isDark ? 0.30 : 0.24),
+                    blurRadius: 18,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isDark
+                    ? const Color(0xFF0E2D4A).withOpacity(0.65)
+                    : Colors.white.withOpacity(0.82),
+                border: Border.all(
+                  color: isDark
+                      ? AgniColors.oceanBright.withOpacity(0.30)
+                      : AgniColors.oceanMid.withOpacity(0.22),
+                  width: 1.4,
+                ),
+              ),
+              child: Icon(
+                Icons.person,
+                color: isDark ? AgniColors.oceanBright : AgniColors.oceanMid,
+                size: 28,
+              ),
+            ),
+            Container(
+              width: 86 + pulse * 80,
+              height: 86 + pulse * 80,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AgniColors.oceanBright.withOpacity(0.10),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../domain/entities/agni_content.dart';
 import '../pages/landing_page.dart';
+import '../../core/socket_service.dart';
+
+const String _wsUrl = 'ws://192.168.0.20:8000/ws';
 
 class AgniApp extends StatefulWidget {
   final AgniContent content;
@@ -13,6 +16,22 @@ class AgniApp extends StatefulWidget {
 
 class _AgniAppState extends State<AgniApp> {
   bool _isDark = false;
+  late final SocketService _socketService;
+
+  @override
+  void initState() {
+    super.initState();
+    _socketService = SocketService(
+      url: _wsUrl,
+      authPayload: const {},
+    )..connect();
+  }
+
+  @override
+  void dispose() {
+    _socketService.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
