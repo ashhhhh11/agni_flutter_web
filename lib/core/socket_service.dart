@@ -1,84 +1,134 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
-/// Lightweight Socket.IO wrapper. No UI changes needed; call connect() once.
+/// Conditional imports
+import 'websocket_stub.dart'
+    if (dart.library.html) 'websocket_web.dart'
+    if (dart.library.io) 'websocket_io.dart';
+
 class SocketService {
   final String url;
   final Map<String, dynamic> authPayload;
-  IO.Socket? _socket;
+
+  dynamic _socket;
+  StreamSubscription? _socketSub;
   StreamSubscription<List<ConnectivityResult>>? _connSub;
+
+  bool _isConnecting = false;
+
+  final _messageController = StreamController<dynamic>.broadcast();
+
+  Stream<dynamic> get messages => _messageController.stream;
 
   SocketService({
     required this.url,
     this.authPayload = const {},
   });
 
-  IO.Socket? get socket => _socket;
+  Future<void> connect() async {
+    if (_isConnecting || _socket != null) return;
 
-  void connect() {
-    // Avoid duplicate connections.
-    if (_socket != null && _socket!.connected) return;
+    _isConnecting = true;
 
-    final opts = IO.OptionBuilder()
-        .setTransports(['websocket'])
-        .enableReconnection()
-        .enableAutoConnect()
-        .setAuth(authPayload)
-        .build();
+    try {
+      _log('connecting to $url');
 
-    _socket = IO.io(url, opts);
+      _socket = await createWebSocket(url, authPayload);
 
-    _socket!
-      ..onConnect((_) => _log('connected'))
-      ..onConnectError((e) => _log('connect_error: $e'))
-      ..onDisconnect((_) => _log('disconnected'))
-      ..onReconnect((_) => _log('reconnected'))
-      ..onError((e) => _log('error: $e'));
+      _socketSub = listenWebSocket(
+        _socket,
+        onMessage: (data) {
+          _log('message: $data');
+          _messageController.add(data);
+        },
+        onDone: () {
+          _log('disconnected');
+          _cleanup();
+          _reconnect();
+        },
+        onError: (e) {
+          _log('error: $e');
+          _cleanup();
+          _reconnect();
+        },
+      );
+
+      _log('connected');
+    } catch (e) {
+      _log('connect_error: $e');
+      _cleanup();
+      _reconnect();
+    }
+
+    _isConnecting = false;
 
     _connSub ??=
         Connectivity().onConnectivityChanged.listen(_handleConnectivityChange);
   }
 
   void emit(String event, dynamic data) {
-    final s = _socket;
-    if (s == null || !s.connected) return;
-    s.emit(event, data);
+    if (_socket == null) return;
+
+    final payload = jsonEncode({
+      "event": event,
+      "data": data,
+    });
+
+    sendWebSocket(_socket, payload);
   }
 
   void on(String event, Function(dynamic) handler) {
-    _socket?.on(event, handler);
-  }
-
-  void off(String event) {
-    _socket?.off(event);
+    messages.listen((msg) {
+      try {
+        final decoded = jsonDecode(msg);
+        if (decoded["event"] == event) {
+          handler(decoded["data"]);
+        }
+      } catch (_) {}
+    });
   }
 
   void dispose() {
-    _socket?.dispose();
-    _socket = null;
+    closeWebSocket(_socket);
+    _cleanup();
     _connSub?.cancel();
-    _connSub = null;
   }
 
-  void _log(String msg) {
-    // Keep lightweight logging; replace with your logger if needed.
-    // ignore: avoid_print
-    print('[SocketService] $msg');
+  void _cleanup() {
+    _socketSub?.cancel();
+    _socketSub = null;
+    _socket = null;
+  }
+
+  void _reconnect() {
+    Future.delayed(const Duration(seconds: 3), () {
+      if (_socket == null) {
+        _log('attempting reconnect...');
+        connect();
+      }
+    });
   }
 
   void _handleConnectivityChange(List<ConnectivityResult> results) {
-    // Take the first result (Android/iOS emit single; Web may emit multiple).
-    final result = results.isNotEmpty ? results.first : ConnectivityResult.none;
+    final result =
+        results.isNotEmpty ? results.first : ConnectivityResult.none;
+
     if (result == ConnectivityResult.none) {
       _log('connectivity lost');
-      _socket?.disconnect();
-      return;
+      closeWebSocket(_socket);
+      _cleanup();
+    } else {
+      if (_socket == null) {
+        _log('connectivity back, reconnecting...');
+        connect();
+      }
     }
-    if (_socket != null && !_socket!.connected) {
-      _log('connectivity back, attempting reconnect');
-      _socket!.connect();
-    }
+  }
+
+  void _log(String msg) {
+    print('[WebSocketService] $msg');
   }
 }

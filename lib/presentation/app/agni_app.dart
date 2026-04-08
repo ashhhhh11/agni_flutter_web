@@ -4,7 +4,7 @@ import '../../domain/entities/agni_content.dart';
 import '../pages/landing_page.dart';
 import '../../core/socket_service.dart';
 
-const String _wsUrl = 'ws://192.168.0.20:8000/ws';
+const String _wsUrl = 'wss://demo.nitya.ai/new/ws';
 
 class AgniApp extends StatefulWidget {
   final AgniContent content;

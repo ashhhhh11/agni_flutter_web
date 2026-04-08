@@ -1720,10 +1720,12 @@ class _MarqueeRowState extends State<_MarqueeRow> {
     final offset = -(widget.progress * totalHalfWidth);
 
     return ClipRect(
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Transform.translate(
-          offset: Offset(offset, 0),
+      child: Transform.translate(
+        offset: Offset(offset, 0),
+        child: OverflowBox(
+          alignment: Alignment.centerLeft,
+          minWidth: 0,
+          maxWidth: double.infinity,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: widget.items.map((label) => Container(
