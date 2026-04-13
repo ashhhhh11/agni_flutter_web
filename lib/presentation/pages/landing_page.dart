@@ -1,20 +1,88 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:video_player/video_player.dart';
+import '../widgets/earth_globe_painter.dart';
 
 import '../../core/agni_colors.dart';
+import '../../core/backend_audio_player_stub.dart'
+    if (dart.library.html) '../../core/backend_audio_player_web.dart'
+    if (dart.library.io) '../../core/backend_audio_player_io.dart';
+import '../../core/socket_service.dart';
+import '../../core/voice_recorder_stub.dart'
+    if (dart.library.html) '../../core/voice_recorder_web.dart'
+    if (dart.library.io) '../../core/voice_recorder_io.dart';
 import '../../domain/entities/agni_content.dart';
 
-// Main Landing Page
+// ─── Video Player Widget ───────────────────────────────────────────────────────
+
+class _VideoPlayerWidget extends StatefulWidget {
+  const _VideoPlayerWidget();
+
+  @override
+  State<_VideoPlayerWidget> createState() => _VideoPlayerWidgetState();
+}
+
+class _VideoPlayerWidgetState extends State<_VideoPlayerWidget> {
+  late VideoPlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.asset('assets/demo.mp4')
+      ..initialize().then((_) {
+        setState(() {});
+        _controller.play();
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _controller.value.isInitialized
+        ? Stack(
+            children: [
+              VideoPlayer(_controller),
+              Positioned(
+                top: 10,
+                right: 10,
+                child: GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          )
+        : const Center(child: CircularProgressIndicator());
+  }
+}
+
+// ─── Main Landing Page ────────────────────────────────────────────────────────
+
 class AgniLandingPage extends StatefulWidget {
   final AgniContent content;
+  final SocketService socketService;
   final bool isDark;
   final VoidCallback onToggleTheme;
 
   const AgniLandingPage({
     super.key,
     required this.content,
+    required this.socketService,
     required this.isDark,
     required this.onToggleTheme,
   });
@@ -33,6 +101,21 @@ class _AgniLandingPageState extends State<AgniLandingPage>
   late AnimationController _marqueeController;
   late AnimationController _langController;
   late AnimationController _floatController;
+  late final VoiceRecorder _voiceRecorder;
+  late final BackendAudioPlayer _backendAudioPlayer;
+
+  StreamSubscription<Map<String, dynamic>>? _socketMessageSub;
+  StreamSubscription<Uint8List>? _audioChunkSub;
+
+  final List<_ConversationItem> _conversation = <_ConversationItem>[];
+
+  // Audio chunk accumulator — collect all MP3 chunks, flush on ai_done
+  final List<Uint8List> _audioChunks = [];
+
+  bool _isRecording = false;
+  bool _isSending = false;
+  String? _pendingClientMessageId;
+  bool _awaitingBackendResponse = false;
 
   int _langIndex = 0;
   double _langOpacity = 1.0;
@@ -41,6 +124,31 @@ class _AgniLandingPageState extends State<AgniLandingPage>
   Timer? _langTimer;
   List<String> get _langs => widget.content.heroLangs;
 
+  void _openContactForm() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (_) => _ContactFormDialog(),
+    );
+  }
+
+  void _openDemoVideo() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.8),
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: const _VideoPlayerWidget(),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -48,7 +156,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     _globeController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 8),
-    )..repeat(reverse: true);
+    )..repeat();
 
     _waveController = AnimationController(
       vsync: this,
@@ -70,14 +178,21 @@ class _AgniLandingPageState extends State<AgniLandingPage>
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
 
+    _voiceRecorder = createVoiceRecorder();
+    _backendAudioPlayer = createBackendAudioPlayer();
+
+    _socketMessageSub = widget.socketService.messages.listen(_onBackendMessage);
+
+    _audioChunkSub = widget.socketService.audioChunks.listen((bytes) {
+      _audioChunks.add(bytes);
+    });
+
     _scrollController.addListener(_checkReveal);
 
-    // Start language cycling
     _langTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _cycleLang();
     });
 
-    // Initial reveal check after build
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkReveal());
   }
 
@@ -109,8 +224,267 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     }
   }
 
+  void _addConversation(_ConversationItem item) {
+    if (!mounted) return;
+    setState(() {
+      _conversation.add(item);
+      if (_conversation.length > 80) {
+        _conversation.removeAt(0);
+      }
+    });
+  }
+
+  void _removePendingTranscriptPlaceholders() {
+    if (!mounted) return;
+    setState(() {
+      _conversation.removeWhere(
+        (item) =>
+            item.source == 'user' && item.message == 'Listening transcript...',
+      );
+    });
+  }
+
+  Future<void> _onTapToTalk() async {
+    await _backendAudioPlayer.prime();
+
+    if (!_voiceRecorder.isSupported) {
+      _addConversation(
+        const _ConversationItem(
+          source: 'system',
+          message: 'Microphone capture is unavailable in this environment.',
+        ),
+      );
+      return;
+    }
+
+    if (_isSending) return;
+
+    if (_isRecording) {
+      await _stopAndSendVoice();
+    } else {
+      await _startVoiceCapture();
+    }
+  }
+
+  Future<void> _startVoiceCapture() async {
+    try {
+      await _voiceRecorder.start();
+      if (!mounted) return;
+      setState(() => _isRecording = true);
+    } catch (e) {
+      _addConversation(
+        _ConversationItem(
+          source: 'system',
+          message: 'Unable to access microphone: $e',
+        ),
+      );
+    }
+  }
+
+  Future<void> _stopAndSendVoice() async {
+    if (_awaitingBackendResponse) {
+      _removePendingTranscriptPlaceholders();
+    }
+    setState(() => _isSending = true);
+    try {
+      final recorded = await _voiceRecorder.stop();
+      if (!mounted) return;
+      setState(() => _isRecording = false);
+
+      if (recorded == null || recorded.pcmBytes.isEmpty) {
+        _addConversation(
+          const _ConversationItem(
+            source: 'system',
+            message: 'No audio captured. Please try speaking longer.',
+          ),
+        );
+        return;
+      }
+
+      final clientMessageId = 'voice_${DateTime.now().millisecondsSinceEpoch}';
+      _pendingClientMessageId = clientMessageId;
+      _awaitingBackendResponse = true;
+
+      _addConversation(
+        _ConversationItem(
+          source: 'user',
+          message: 'Listening transcript...',
+          clientMessageId: clientMessageId,
+        ),
+      );
+
+      widget.socketService.sendAudio(recorded.pcmBytes);
+    } catch (e) {
+      _addConversation(
+        _ConversationItem(
+          source: 'system',
+          message: 'Failed while sending recorded audio: $e',
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
+    }
+  }
+
+  // ── Backend message handler ────────────────────────────────────────────────
+  void _onBackendMessage(Map<String, dynamic> msg) {
+    print('[VoiceFlow] backend message: $msg');
+    final type = msg['type']?.toString() ?? '';
+
+    switch (type) {
+      case 'session_start':
+      case 'pong':
+      case 'server_ping':
+      case 'ack':
+      case 'connected':
+      case 'status':
+      case 'interrupt':
+      case 'reset_ack':
+      case 'session_update':
+      case 'voice_changed':
+      case 'backchannel':
+        return;
+
+      case 'partial':
+        final text = msg['text']?.toString() ?? '';
+        if (text.trim().isNotEmpty) {
+          setState(() {
+            final idx = _conversation.lastIndexWhere(
+              (item) =>
+                  item.source == 'user' &&
+                  item.message == 'Listening transcript...',
+            );
+            if (idx >= 0) {
+              _conversation[idx] = _ConversationItem(
+                source: 'user',
+                message: text.trim(),
+                clientMessageId: _conversation[idx].clientMessageId,
+              );
+            }
+          });
+        }
+        return;
+
+      case 'transcript':
+        final text = msg['text']?.toString() ?? '';
+        if (text.trim().isNotEmpty) {
+          _awaitingBackendResponse = false;
+          _replacePendingUserTranscript(
+            transcript: text.trim(),
+            clientMessageId: msg['client_message_id']?.toString(),
+          );
+        }
+        return;
+
+      case 'ai_stream':
+        final text = msg['text']?.toString() ?? '';
+        if (text.trim().isNotEmpty) {
+          _awaitingBackendResponse = false;
+          if (_conversation.isNotEmpty &&
+              _conversation.last.source == 'assistant') {
+            setState(() {
+              final last = _conversation.last;
+              _conversation[_conversation.length - 1] = _ConversationItem(
+                source: 'assistant',
+                message: last.message + text,
+                clientMessageId: last.clientMessageId,
+              );
+            });
+          } else {
+            _addConversation(
+              _ConversationItem(source: 'assistant', message: text),
+            );
+          }
+        }
+        return;
+
+      case 'ai_done':
+        _awaitingBackendResponse = false;
+        if (_audioChunks.isNotEmpty) {
+          final totalLen =
+              _audioChunks.fold<int>(0, (sum, c) => sum + c.length);
+          final merged = Uint8List(totalLen);
+          var offset = 0;
+          for (final chunk in _audioChunks) {
+            merged.setRange(offset, offset + chunk.length, chunk);
+            offset += chunk.length;
+          }
+          _audioChunks.clear();
+          _backendAudioPlayer.playBytes(bytes: merged, mimeType: 'audio/mpeg');
+        }
+        return;
+
+      case 'error':
+        final text = msg['text']?.toString() ?? 'An error occurred.';
+        _addConversation(_ConversationItem(source: 'system', message: text));
+        return;
+
+      default:
+        print('[VoiceFlow] unhandled message type: $type');
+        return;
+    }
+  }
+
+  void _replacePendingUserTranscript({
+    required String transcript,
+    String? clientMessageId,
+  }) {
+    final normalized = transcript.trim();
+    if (normalized.isEmpty) return;
+
+    int? indexToReplace;
+    if (clientMessageId != null && clientMessageId.isNotEmpty) {
+      for (int i = _conversation.length - 1; i >= 0; i--) {
+        final item = _conversation[i];
+        if (item.source == 'user' &&
+            item.clientMessageId == clientMessageId &&
+            item.message == 'Listening transcript...') {
+          indexToReplace = i;
+          break;
+        }
+      }
+    }
+
+    indexToReplace ??= _pendingClientMessageId == null
+        ? null
+        : _conversation.lastIndexWhere(
+            (item) =>
+                item.source == 'user' &&
+                item.clientMessageId == _pendingClientMessageId &&
+                item.message == 'Listening transcript...',
+          );
+
+    if (indexToReplace != null && indexToReplace >= 0) {
+      setState(() {
+        _conversation[indexToReplace!] = _ConversationItem(
+          source: 'user',
+          message: normalized,
+          clientMessageId: clientMessageId ?? _pendingClientMessageId,
+        );
+      });
+      _pendingClientMessageId = null;
+      _awaitingBackendResponse = false;
+      return;
+    }
+
+    _addConversation(
+      _ConversationItem(
+        source: 'user',
+        message: normalized,
+        clientMessageId: clientMessageId,
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _audioChunks.clear();
+    _socketMessageSub?.cancel();
+    _audioChunkSub?.cancel();
+    _voiceRecorder.dispose();
+    _backendAudioPlayer.dispose();
     _globeController.dispose();
     _waveController.dispose();
     _marqueeController.dispose();
@@ -128,7 +502,8 @@ class _AgniLandingPageState extends State<AgniLandingPage>
   Color get textColor => isDark ? AgniColors.darkText : AgniColors.lightText;
   Color get text2Color => isDark ? AgniColors.darkText2 : AgniColors.lightText2;
   Color get text3Color => isDark ? AgniColors.darkText3 : AgniColors.lightText3;
-  Gradient get gradText => isDark ? AgniColors.gradText : AgniColors.gradTextLight;
+  Gradient get gradText =>
+      isDark ? AgniColors.gradText : AgniColors.gradTextLight;
 
   @override
   Widget build(BuildContext context) {
@@ -136,9 +511,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
       backgroundColor: bgColor,
       body: Stack(
         children: [
-          // Background layer
           _buildBackground(),
-          // Content
           NotificationListener<ScrollNotification>(
             onNotification: (n) {
               _checkReveal();
@@ -166,8 +539,6 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     );
   }
 
-  // ─── Background ───────────────────────────────────────────────────────────
-
   Widget _buildBackground() {
     return Positioned.fill(
       child: AnimatedBuilder(
@@ -182,45 +553,48 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     );
   }
 
-  // ─── Navbar ───────────────────────────────────────────────────────────────
-
   Widget _buildNav() {
+    final isCompact = MediaQuery.of(context).size.width < 1240;
     final navBg = isDark
         ? const Color(0xFF030D1A).withOpacity(0.82)
         : const Color(0xFFDCEEF8).withOpacity(0.82);
     final borderColor = isDark
         ? AgniColors.darkBorder.withOpacity(0.12)
         : AgniColors.oceanMid.withOpacity(0.12);
-
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
       decoration: BoxDecoration(
         color: navBg,
         border: Border(bottom: BorderSide(color: borderColor, width: 1)),
       ),
       child: Row(
         children: [
-          _gradientText('Technodysis.', GoogleFonts.playfairDisplay(
-            fontSize: 24.8, fontWeight: FontWeight.w900,
-            letterSpacing: -0.5,
-          )),
+          _gradientText(
+              'Technodysis.',
+              GoogleFonts.playfairDisplay(
+                fontSize: 24.8,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
+              )),
           const Spacer(),
-          Row(
-            children: content.navItems.map((item) =>
-              Padding(
-                padding: const EdgeInsets.only(left: 36),
-                child: Text(item, style: TextStyle(
-                  color: text2Color,
-                  fontSize: 14.4,
-                  fontWeight: FontWeight.w500,
-                )),
-              )
-            ).toList(),
-          ),
-          const SizedBox(width: 36),
-          _gradientButton('Contact sales →', small: true),
+          if (!isCompact) ...[
+            Row(
+              children: content.navItems
+                  .map((item) => Padding(
+                        padding: const EdgeInsets.only(left: 16),
+                        child: Text(item,
+                            style: TextStyle(
+                              color: text2Color,
+                              fontSize: 14.4,
+                              fontWeight: FontWeight.w500,
+                            )),
+                      ))
+                  .toList(),
+            ),
+            const SizedBox(width: 16),
+          ],
+          _gradientButton('Contact sales ->', small: true),
           const SizedBox(width: 8),
-          // Theme toggle
           GestureDetector(
             onTap: widget.onToggleTheme,
             child: Container(
@@ -249,15 +623,12 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     );
   }
 
-  // ─── Hero ─────────────────────────────────────────────────────────────────
-
   Widget _buildHero() {
     return SizedBox(
       width: double.infinity,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Globe watermark
           AnimatedBuilder(
             animation: _globeController,
             builder: (_, __) => CustomPaint(
@@ -269,21 +640,17 @@ class _AgniLandingPageState extends State<AgniLandingPage>
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 100, 24, 80),
+            padding: const EdgeInsets.fromLTRB(24, 60, 24, 40),
             child: Column(
               children: [
-                // Badge
                 _buildHeroBadge(),
                 const SizedBox(height: 32),
-                // Lang ticker
                 _buildLangTicker(),
                 const SizedBox(height: 30),
-                // Title
                 _buildHeroTitle(),
                 const SizedBox(height: 22),
-                // Subtitle
                 Text(
-                  'We build agentic AI and automation that transforms Healthcare, Banking, Insurance, Telecom, and Retail — with measurable ROI from day one.',
+                  'We build agentic AI and automation that transforms Banking, Telecom, Healthcare, Insurance, and Retail — with measurable ROI from day one.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 18,
@@ -292,18 +659,22 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                     fontWeight: FontWeight.w400,
                   ),
                 ),
-                const SizedBox(height: 44),
-                // Actions
+                const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _gradientButton('Talk to an expert'),
-                    const SizedBox(width: 16),
-                    _ghostButton('See how it works'),
+                    GestureDetector(
+                      onTap: _openContactForm,
+                      child: _gradientButton('Talk to an expert'),
+                    ),
+                    const SizedBox(width: 10),
+                    GestureDetector(
+                      onTap: _openDemoVideo,
+                      child: _ghostButton('See how it works'),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 72),
-                // Phone mockup
+                const SizedBox(height: 32),
                 _buildPhoneMockup(),
               ],
             ),
@@ -326,9 +697,13 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               ? AgniColors.oceanBright.withOpacity(0.25)
               : AgniColors.oceanMid.withOpacity(0.16),
         ),
-        boxShadow: isDark ? [
-          BoxShadow(color: AgniColors.oceanBright.withOpacity(0.10), blurRadius: 20),
-        ] : null,
+        boxShadow: isDark
+            ? [
+                BoxShadow(
+                    color: AgniColors.oceanBright.withOpacity(0.10),
+                    blurRadius: 20),
+              ]
+            : null,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -360,16 +735,20 @@ class _AgniLandingPageState extends State<AgniLandingPage>
           child: Opacity(
             opacity: opacity.clamp(0.2, 1.0),
             child: Container(
-              width: 6, height: 6,
+              width: 6,
+              height: 6,
               decoration: BoxDecoration(
-                color: isDark ? AgniColors.forestBright : AgniColors.forestLight,
+                color:
+                    isDark ? AgniColors.forestBright : AgniColors.forestLight,
                 shape: BoxShape.circle,
-                boxShadow: isDark ? [
-                  BoxShadow(
-                    color: AgniColors.forestBright.withOpacity(0.60),
-                    blurRadius: 8,
-                  ),
-                ] : null,
+                boxShadow: isDark
+                    ? [
+                        BoxShadow(
+                          color: AgniColors.forestBright.withOpacity(0.60),
+                          blurRadius: 8,
+                        ),
+                      ]
+                    : null,
               ),
             ),
           ),
@@ -394,7 +773,8 @@ class _AgniLandingPageState extends State<AgniLandingPage>
             return Transform.translate(
               offset: Offset(0, offset),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
                 decoration: BoxDecoration(
                   color: isDark
                       ? const Color(0xFF0E2D4A).withOpacity(0.60)
@@ -406,11 +786,12 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                         : AgniColors.oceanMid.withOpacity(0.14),
                   ),
                 ),
-                child: Text(e.value, style: TextStyle(
-                  fontSize: 13.6,
-                  color: text2Color,
-                  fontWeight: FontWeight.w500,
-                )),
+                child: Text(e.value,
+                    style: TextStyle(
+                      fontSize: 13.6,
+                      color: text2Color,
+                      fontWeight: FontWeight.w500,
+                    )),
               ),
             );
           },
@@ -423,7 +804,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     return Column(
       children: [
         Text(
-          'Agentic AI + Automation',
+          'Conversational AI + Automation',
           textAlign: TextAlign.center,
           style: GoogleFonts.playfairDisplay(
             fontSize: 72,
@@ -433,40 +814,45 @@ class _AgniLandingPageState extends State<AgniLandingPage>
             color: textColor,
           ),
         ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'for modern ',
-              style: GoogleFonts.playfairDisplay(
-                fontSize: 72,
-                fontWeight: FontWeight.w900,
-                height: 1.06,
-                letterSpacing: -2.16,
-                color: textColor,
-              ),
-            ),
-            ShaderMask(
-              shaderCallback: (bounds) => gradText.createShader(bounds),
-              child: Text(
-                'enterprises.',
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'for modern ',
                 style: GoogleFonts.playfairDisplay(
                   fontSize: 72,
                   fontWeight: FontWeight.w900,
-                  fontStyle: FontStyle.italic,
                   height: 1.06,
                   letterSpacing: -2.16,
-                  color: Colors.white,
+                  color: textColor,
                 ),
               ),
-            ),
-          ],
+              ShaderMask(
+                shaderCallback: (bounds) => gradText.createShader(bounds),
+                child: Text(
+                  'enterprises.',
+                  style: GoogleFonts.playfairDisplay(
+                    fontSize: 72,
+                    fontWeight: FontWeight.w900,
+                    fontStyle: FontStyle.italic,
+                    height: 1.06,
+                    letterSpacing: -2.16,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
 
   Widget _buildPhoneMockup() {
+    final isNarrow = MediaQuery.of(context).size.width < 1180;
+
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -484,38 +870,51 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                   : Colors.white.withOpacity(0.90),
               width: isDark ? 1 : 1.5,
             ),
-            boxShadow: isDark ? [
-              BoxShadow(color: AgniColors.oceanBright.withOpacity(0.20), blurRadius: 80),
-              BoxShadow(color: const Color(0xFF000000).withOpacity(0.40), blurRadius: 24, offset: const Offset(0, 24)),
-            ] : [
-              BoxShadow(color: const Color(0xFF0A2342).withOpacity(0.22), blurRadius: 80, offset: const Offset(0, 20)),
-            ],
+            boxShadow: isDark
+                ? [
+                    BoxShadow(
+                        color: AgniColors.oceanBright.withOpacity(0.20),
+                        blurRadius: 80),
+                    BoxShadow(
+                        color: const Color(0xFF000000).withOpacity(0.40),
+                        blurRadius: 24,
+                        offset: const Offset(0, 24)),
+                  ]
+                : [
+                    BoxShadow(
+                        color: const Color(0xFF0A2342).withOpacity(0.22),
+                        blurRadius: 80,
+                        offset: const Offset(0, 20)),
+                  ],
           ),
           child: Stack(
             children: [
-              // Gradient overlay
               Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(40),
                   gradient: LinearGradient(
                     begin: const Alignment(-0.7, -0.9),
                     end: const Alignment(1, 1),
-                    colors: isDark ? [
-                      AgniColors.oceanBright.withOpacity(0.06),
-                      AgniColors.forestLight.withOpacity(0.05),
-                    ] : [
-                      const Color(0xFFB4D7EB).withOpacity(0.22),
-                      const Color(0xFFB4E1C8).withOpacity(0.18),
-                    ],
+                    colors: isDark
+                        ? [
+                            AgniColors.oceanBright.withOpacity(0.06),
+                            AgniColors.forestLight.withOpacity(0.05),
+                          ]
+                        : [
+                            const Color(0xFFB4D7EB).withOpacity(0.22),
+                            const Color(0xFFB4E1C8).withOpacity(0.18),
+                          ],
                   ),
                 ),
               ),
-              // Notch
               Positioned(
-                top: 16, left: 0, right: 0,
+                top: 16,
+                left: 0,
+                right: 0,
                 child: Center(
                   child: Container(
-                    width: 80, height: 6,
+                    width: 80,
+                    height: 6,
                     decoration: BoxDecoration(
                       color: isDark
                           ? AgniColors.oceanBright.withOpacity(0.15)
@@ -525,16 +924,14 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                   ),
                 ),
               ),
-              // Center content
               Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-              children: [
+                  children: [
                     _buildTalkingAvatar(),
                     const SizedBox(height: 14),
                     _buildWaveform(),
                     const SizedBox(height: 20),
-                    // Language display
                     AnimatedOpacity(
                       duration: const Duration(milliseconds: 400),
                       opacity: _langOpacity,
@@ -560,50 +957,56 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                       ),
                     ),
                     const SizedBox(height: 20),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 10),
-                      decoration: BoxDecoration(
-                        gradient: AgniColors.grad,
-                        borderRadius: BorderRadius.circular(100),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AgniColors.oceanBright.withOpacity(isDark ? 0.35 : 0.28),
-                            blurRadius: 20, offset: const Offset(0, 4),
+                    GestureDetector(
+                      onTap: _onTapToTalk,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 28,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: AgniColors.grad,
+                          borderRadius: BorderRadius.circular(100),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AgniColors.oceanBright.withOpacity(
+                                isDark ? 0.35 : 0.28,
+                              ),
+                              blurRadius: 20,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          _isSending
+                              ? '● Sending audio...'
+                              : _isRecording
+                                  ? '■ Tap to stop'
+                                  : '● Tap to talk',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.6,
+                            fontWeight: FontWeight.w600,
                           ),
-                        ],
-                      ),
-                      child: const Text(
-                        '● Tap to talk',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13.6,
-                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
+                    if (isNarrow) ...[
+                      const SizedBox(height: 14),
+                      _buildConversationPanel(width: 220, height: 116),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
         ),
-        // Floating cards
-        Positioned(
-          top: 50, right: -120,
-          child: _buildFloatingCard(
-            content.floatingCards.isNotEmpty ? content.floatingCards[0].stat : '100K+',
-            content.floatingCards.isNotEmpty ? content.floatingCards[0].label : 'Daily calls',
-            content.floatingCards.isNotEmpty ? content.floatingCards[0].delayFactor : 1.0,
+        if (!isNarrow)
+          Positioned(
+            top: 190,
+            right: -290,
+            child: _buildConversationPanel(width: 268, height: 260),
           ),
-        ),
-        Positioned(
-          bottom: 90, left: -110,
-          child: _buildFloatingCard(
-            content.floatingCards.length > 1 ? content.floatingCards[1].stat : '\$0.03/min',
-            content.floatingCards.length > 1 ? content.floatingCards[1].label : 'Total cost',
-            content.floatingCards.length > 1 ? content.floatingCards[1].delayFactor : 2.2,
-          ),
-        ),
       ],
     );
   }
@@ -628,12 +1031,14 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               decoration: BoxDecoration(
                 gradient: AgniColors.grad,
                 borderRadius: BorderRadius.circular(100),
-                boxShadow: isDark ? [
-                  BoxShadow(
-                    color: AgniColors.oceanBright.withOpacity(0.40),
-                    blurRadius: 8,
-                  ),
-                ] : null,
+                boxShadow: isDark
+                    ? [
+                        BoxShadow(
+                          color: AgniColors.oceanBright.withOpacity(0.40),
+                          blurRadius: 8,
+                        ),
+                      ]
+                    : null,
               ),
             );
           }),
@@ -658,7 +1063,8 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                 gradient: AgniColors.grad,
                 boxShadow: [
                   BoxShadow(
-                    color: AgniColors.oceanBright.withOpacity(isDark ? 0.30 : 0.24),
+                    color: AgniColors.oceanBright
+                        .withOpacity(isDark ? 0.30 : 0.24),
                     blurRadius: 18,
                     spreadRadius: 2,
                   ),
@@ -700,102 +1106,135 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     );
   }
 
-  Widget _buildFloatingCard(String stat, String label, double delayFactor) {
-    return AnimatedBuilder(
-      animation: _floatController,
-      builder: (_, __) {
-        final t = ((_floatController.value * (1 / 4.0)) + delayFactor / 4.0) % 1.0;
-        final offset = math.sin(t * math.pi * 2) * 7;
-        return Transform.translate(
-          offset: Offset(0, offset),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? const Color(0xFF08162A).withOpacity(0.88)
-                  : Colors.white.withOpacity(0.88),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: isDark
-                    ? AgniColors.oceanBright.withOpacity(0.25)
-                    : Colors.white.withOpacity(0.95),
+  Widget _buildConversationPanel({
+    double width = 228,
+    double height = 152,
+  }) {
+    final panelBg = isDark
+        ? const Color(0xFF08162A).withOpacity(0.78)
+        : Colors.white.withOpacity(0.76);
+    final border = isDark
+        ? AgniColors.oceanBright.withOpacity(0.20)
+        : AgniColors.oceanMid.withOpacity(0.18);
+
+    final visibleConversation = _conversation
+        .where((item) => item.source == 'user' || item.source == 'assistant')
+        .toList();
+
+    return Container(
+      width: width,
+      height: height,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: visibleConversation.isEmpty
+          ? Center(
+              child: Text(
+                'Speak to start conversation',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: text3Color,
+                  height: 1.4,
+                ),
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: AgniColors.oceanBright.withOpacity(isDark ? 0.10 : 0.08),
-                  blurRadius: 48, offset: const Offset(0, 8),
-                ),
-              ],
+            )
+          : ListView.builder(
+              reverse: true,
+              itemCount: visibleConversation.length,
+              itemBuilder: (context, index) {
+                final item =
+                    visibleConversation[visibleConversation.length - 1 - index];
+                final isUser = item.source == 'user';
+                final isAssistant = item.source == 'assistant';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Align(
+                    alignment:
+                        isUser ? Alignment.centerRight : Alignment.centerLeft,
+                    child: Container(
+                      constraints: const BoxConstraints(maxWidth: 190),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isUser
+                            ? (isDark
+                                ? AgniColors.oceanBright.withOpacity(0.22)
+                                : AgniColors.oceanBright.withOpacity(0.16))
+                            : (isAssistant
+                                ? (isDark
+                                    ? AgniColors.forestLight.withOpacity(0.18)
+                                    : AgniColors.forestLight.withOpacity(0.16))
+                                : (isDark
+                                    ? AgniColors.darkBorder.withOpacity(0.20)
+                                    : Colors.white.withOpacity(0.75))),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _sourceColor(item.source).withOpacity(0.30),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Text(
+                        item.message,
+                        style: TextStyle(
+                          fontSize: 10.8,
+                          color: text2Color,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ShaderMask(
-                  shaderCallback: (bounds) => gradText.createShader(bounds),
-                  child: Text(stat, style: const TextStyle(
-                    fontSize: 17.6,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  )),
-                ),
-                Text(label, style: TextStyle(
-                  fontSize: 12.8,
-                  color: text2Color,
-                  fontWeight: FontWeight.w500,
-                )),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 
-  // ─── Marquee ──────────────────────────────────────────────────────────────
-  // CSS: .marquee-item { padding:10px 36px; font-size:.95rem; font-weight:500;
-  //        color:text2; border-right:1px solid rgba(26,74,107,.10); flex-shrink:0; }
-  // CSS: @keyframes marquee { from{translateX(0)} to{translateX(-50%)} }
-  // HTML has exactly 20 items (10 + 10 duplicated). Scrolling -50% = one set.
+  Color _sourceColor(String source) {
+    switch (source) {
+      case 'user':
+        return isDark ? AgniColors.oceanBright : AgniColors.oceanMid;
+      case 'assistant':
+        return isDark ? AgniColors.forestLight : AgniColors.forestMid;
+      default:
+        return text3Color;
+    }
+  }
 
   Widget _buildMarquee() {
     final items = content.marqueeItems;
-    // Exactly 20 items as in HTML
     final doubled = [...items, ...items];
-
     final borderColor = isDark
         ? AgniColors.oceanBright.withOpacity(0.12)
         : const Color(0xFF1A4A6B).withOpacity(0.10);
 
     return Container(
-      // padding:44px 0
-      padding: const EdgeInsets.symmetric(vertical: 44),
+      padding: const EdgeInsets.symmetric(vertical: 20),
       decoration: BoxDecoration(
-        // background:rgba(255,255,255,.55) light / rgba(5,15,32,.70) dark
         color: isDark
             ? const Color(0xFF050F20).withOpacity(0.70)
             : Colors.white.withOpacity(0.55),
-        // border-top + border-bottom
         border: Border.symmetric(
           horizontal: BorderSide(color: borderColor, width: 1),
         ),
       ),
       child: Column(
         children: [
-          // .marquee-label: font-size:.75rem=12px; letter-spacing:.12em; uppercase; mb:24px
           Text(
             'TRUSTED BY 2,100+ BUSINESSES ACROSS 12 COUNTRIES',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              letterSpacing: 12 * 0.12, // .12em
+              letterSpacing: 12 * 0.12,
               color: text3Color,
             ),
           ),
           const SizedBox(height: 24),
-          // Overflow hidden wrapper, marquee scrolls naturally
           SizedBox(
-            height: 41, // 10px top + 10px bottom padding + ~21px text
+            height: 41,
             child: AnimatedBuilder(
               animation: _marqueeController,
               builder: (_, __) {
@@ -803,7 +1242,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                   items: doubled,
                   progress: _marqueeController.value,
                   textStyle: TextStyle(
-                    fontSize: 15.2,  // .95rem
+                    fontSize: 15.2,
                     fontWeight: FontWeight.w500,
                     color: text2Color,
                   ),
@@ -817,23 +1256,22 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     );
   }
 
-  // ─── Stats ────────────────────────────────────────────────────────────────
-
   Widget _buildStats() {
     final stats = content.stats;
-
     return RevealWidget(
       key: _revealKeys[0],
       revealed: _revealed[0],
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 100),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
         child: Row(
-          children: stats.map((s) => Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: _buildStatCard(s.value, s.description),
-            ),
-          )).toList(),
+          children: stats
+              .map((s) => Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: _buildStatCard(s.value, s.description),
+                    ),
+                  ))
+              .toList(),
         ),
       ),
     );
@@ -844,9 +1282,10 @@ class _AgniLandingPageState extends State<AgniLandingPage>
       isDark: isDark,
       child: Stack(
         children: [
-          // Top gradient line
           Positioned(
-            top: 0, left: 0, right: 0,
+            top: 0,
+            left: 0,
+            right: 0,
             child: Container(
               height: 2,
               decoration: const BoxDecoration(
@@ -856,10 +1295,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                   topRight: Radius.circular(32),
                 ),
                 boxShadow: [
-                  BoxShadow(
-                    color: Color(0x804EB3D3),
-                    blurRadius: 16,
-                  ),
+                  BoxShadow(color: Color(0x804EB3D3), blurRadius: 16),
                 ],
               ),
             ),
@@ -871,19 +1307,21 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               children: [
                 ShaderMask(
                   shaderCallback: (b) => gradText.createShader(b),
-                  child: Text(num, style: GoogleFonts.playfairDisplay(
-                    fontSize: 48,
-                    fontWeight: FontWeight.w900,
-                    height: 1,
-                    color: Colors.white,
-                  )),
+                  child: Text(num,
+                      style: GoogleFonts.playfairDisplay(
+                        fontSize: 48,
+                        fontWeight: FontWeight.w900,
+                        height: 1,
+                        color: Colors.white,
+                      )),
                 ),
                 const SizedBox(height: 10),
-                Text(desc, style: TextStyle(
-                  fontSize: 14.4,
-                  color: text3Color,
-                  height: 1.55,
-                )),
+                Text(desc,
+                    style: TextStyle(
+                      fontSize: 14.4,
+                      color: text3Color,
+                      height: 1.55,
+                    )),
               ],
             ),
           ),
@@ -892,16 +1330,13 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     );
   }
 
-  // ─── Features ─────────────────────────────────────────────────────────────
-
   Widget _buildFeatures() {
     final features = content.features;
-
     return RevealWidget(
       key: _revealKeys[1],
       revealed: _revealed[1],
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 100),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -913,15 +1348,18 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               'Built from day one for the languages that matter most — not as an afterthought.',
               style: TextStyle(fontSize: 17.6, color: text3Color, height: 1.7),
             ),
-            const SizedBox(height: 56),
-            // 3-column grid
+            const SizedBox(height: 28),
             Wrap(
               spacing: 22,
               runSpacing: 22,
-              children: features.map((f) => SizedBox(
-                width: (MediaQuery.of(context).size.width - 104 - 44) / 3,
-                child: _buildFeatCard(f.icon, f.title, f.description, f.stat),
-              )).toList(),
+              children: features
+                  .map((f) => SizedBox(
+                        width:
+                            (MediaQuery.of(context).size.width - 104 - 44) / 3,
+                        child: _buildFeatCard(
+                            f.icon, f.title, f.description, f.stat),
+                      ))
+                  .toList(),
             ),
           ],
         ),
@@ -937,16 +1375,19 @@ class _AgniLandingPageState extends State<AgniLandingPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 52, height: 52,
+            width: 52,
+            height: 52,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: isDark ? [
-                  AgniColors.oceanBright.withOpacity(0.12),
-                  AgniColors.forestBright.withOpacity(0.10),
-                ] : [
-                  AgniColors.oceanMid.withOpacity(0.10),
-                  AgniColors.forestMid.withOpacity(0.10),
-                ],
+                colors: isDark
+                    ? [
+                        AgniColors.oceanBright.withOpacity(0.12),
+                        AgniColors.forestBright.withOpacity(0.10),
+                      ]
+                    : [
+                        AgniColors.oceanMid.withOpacity(0.10),
+                        AgniColors.forestMid.withOpacity(0.10),
+                      ],
               ),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
@@ -955,49 +1396,52 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                     : AgniColors.oceanMid.withOpacity(0.16),
               ),
             ),
-            child: Center(child: Text(icon, style: const TextStyle(fontSize: 24))),
+            child:
+                Center(child: Text(icon, style: const TextStyle(fontSize: 24))),
           ),
           const SizedBox(height: 20),
-          Text(title, style: GoogleFonts.playfairDisplay(
-            fontSize: 19.2,
-            fontWeight: FontWeight.w700,
-            color: textColor,
-          )),
+          Text(title,
+              style: GoogleFonts.playfairDisplay(
+                fontSize: 19.2,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              )),
           const SizedBox(height: 10),
-          Text(desc, style: TextStyle(fontSize: 14.4, color: text3Color, height: 1.65)),
+          Text(desc,
+              style:
+                  TextStyle(fontSize: 14.4, color: text3Color, height: 1.65)),
           const SizedBox(height: 20),
-          Text(stat, style: GoogleFonts.dmMono(
-            fontSize: 12.8,
-            color: isDark ? AgniColors.forestBright : AgniColors.forestMid,
-            fontWeight: FontWeight.w500,
-          )),
+          Text(stat,
+              style: GoogleFonts.dmMono(
+                fontSize: 12.8,
+                color: isDark ? AgniColors.forestBright : AgniColors.forestMid,
+                fontWeight: FontWeight.w500,
+              )),
         ],
       ),
     );
   }
 
-  // ─── Comparison ───────────────────────────────────────────────────────────
-
   Widget _buildComparison() {
     final comparisons = content.comparisons;
-
     return RevealWidget(
       key: _revealKeys[2],
       revealed: _revealed[2],
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 100),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _sectionTag('The difference'),
             const SizedBox(height: 18),
-            _sectionTitle('Everyone else is fighting\nover ', 'the same market.'),
-            const SizedBox(height: 56),
+            _sectionTitle('Customer striving towards ', 'AI Transformation.'),
+            const SizedBox(height: 28),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (comparisons.isNotEmpty)
-                  Expanded(child: _buildCompCard(
+                  Expanded(
+                      child: _buildCompCard(
                     isOurs: comparisons[0].isOurs,
                     badge: comparisons[0].badge,
                     headline: comparisons[0].headline,
@@ -1005,7 +1449,8 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                   )),
                 if (comparisons.length > 1) const SizedBox(width: 24),
                 if (comparisons.length > 1)
-                  Expanded(child: _buildCompCard(
+                  Expanded(
+                      child: _buildCompCard(
                     isOurs: comparisons[1].isOurs,
                     badge: comparisons[1].badge,
                     headline: comparisons[1].headline,
@@ -1040,105 +1485,118 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               : (isDark
                   ? Colors.white.withOpacity(0.05)
                   : Colors.white.withOpacity(0.80)),
-          width: isOurs ? 1 : 1,
         ),
-        boxShadow: isOurs ? [
-          BoxShadow(
-            color: AgniColors.oceanBright.withOpacity(isDark ? 0.20 : 0.10),
-            blurRadius: 80, offset: const Offset(0, 24),
-          ),
-        ] : null,
+        boxShadow: isOurs
+            ? [
+                BoxShadow(
+                  color:
+                      AgniColors.oceanBright.withOpacity(isDark ? 0.20 : 0.10),
+                  blurRadius: 80,
+                  offset: const Offset(0, 24),
+                ),
+              ]
+            : null,
       ),
       child: Stack(
         children: [
-          if (isOurs) Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(32),
-                gradient: RadialGradient(
-                  center: const Alignment(0.5, -0.5),
-                  radius: 1.1,
-                  colors: [
-                    AgniColors.oceanBright.withOpacity(0.18),
-                    Colors.transparent,
-                  ],
+          if (isOurs)
+            Positioned.fill(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(32),
+                  gradient: RadialGradient(
+                    center: const Alignment(0.5, -0.5),
+                    radius: 1.1,
+                    colors: [
+                      AgniColors.oceanBright.withOpacity(0.18),
+                      Colors.transparent,
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                 decoration: BoxDecoration(
                   gradient: isOurs ? AgniColors.grad : null,
-                  color: isOurs ? null : (isDark
-                      ? Colors.white.withOpacity(0.05)
-                      : AgniColors.oceanMid.withOpacity(0.08)),
+                  color: isOurs
+                      ? null
+                      : (isDark
+                          ? Colors.white.withOpacity(0.05)
+                          : AgniColors.oceanMid.withOpacity(0.08)),
                   borderRadius: BorderRadius.circular(100),
-                  border: isOurs ? null : Border.all(
-                    color: isDark
-                        ? Colors.white.withOpacity(0.10)
-                        : AgniColors.oceanMid.withOpacity(0.12),
-                  ),
-                  boxShadow: isOurs ? [
-                    BoxShadow(
-                      color: AgniColors.oceanBright.withOpacity(0.30),
-                      blurRadius: 20,
-                    ),
-                  ] : null,
+                  border: isOurs
+                      ? null
+                      : Border.all(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.10)
+                              : AgniColors.oceanMid.withOpacity(0.12),
+                        ),
+                  boxShadow: isOurs
+                      ? [
+                          BoxShadow(
+                            color: AgniColors.oceanBright.withOpacity(0.30),
+                            blurRadius: 20,
+                          ),
+                        ]
+                      : null,
                 ),
-                child: Text(
-                  badge,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.06 * 12,
-                    color: isOurs ? Colors.white : text3Color,
-                  ),
-                ),
+                child: Text(badge,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.06 * 12,
+                      color: isOurs ? Colors.white : text3Color,
+                    )),
               ),
               const SizedBox(height: 28),
-              Text(headline, style: GoogleFonts.playfairDisplay(
-                fontSize: 24.8,
-                fontWeight: FontWeight.w700,
-                height: 1.25,
-                color: isOurs ? Colors.white.withOpacity(0.90) : textColor,
-              )),
+              Text(headline,
+                  style: GoogleFonts.playfairDisplay(
+                    fontSize: 24.8,
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                    color: isOurs ? Colors.white.withOpacity(0.90) : textColor,
+                  )),
               const SizedBox(height: 28),
               ...items.map((item) => Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Text(
-                        isOurs ? '✓' : '✕',
-                        style: TextStyle(
-                          fontSize: 12.8,
-                          color: isOurs
-                              ? AgniColors.forestBright
-                              : (isDark ? const Color(0xFF334455) : const Color(0xFFBBBBBB)),
-                          fontWeight: FontWeight.w700,
-                          shadows: isOurs && isDark ? [
-                            Shadow(color: AgniColors.forestBright.withOpacity(0.60), blurRadius: 8),
-                          ] : null,
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Text(
+                            isOurs ? '✓' : '✕',
+                            style: TextStyle(
+                              fontSize: 12.8,
+                              color: isOurs
+                                  ? AgniColors.forestBright
+                                  : (isDark
+                                      ? const Color(0xFF334455)
+                                      : const Color(0xFFBBBBBB)),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                            child: Text(item,
+                                style: TextStyle(
+                                  fontSize: 15.2,
+                                  color: isOurs
+                                      ? Colors.white.withOpacity(0.85)
+                                      : (isDark
+                                          ? text2Color.withOpacity(0.75)
+                                          : AgniColors.lightText2),
+                                  height: 1.5,
+                                ))),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Text(item, style: TextStyle(
-                      fontSize: 15.2,
-                      color: isOurs
-                          ? Colors.white.withOpacity(0.85)
-                          : (isDark ? text2Color.withOpacity(0.75) : AgniColors.lightText2),
-                      height: 1.5,
-                    ))),
-                  ],
-                ),
-              )),
+                  )),
             ],
           ),
         ],
@@ -1146,21 +1604,17 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     );
   }
 
-  // ─── Earth Section ────────────────────────────────────────────────────────
-
   Widget _buildEarthSection() {
     final langPills = content.langPills;
-
     return RevealWidget(
       key: _revealKeys[3],
       revealed: _revealed[3],
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 100),
+        padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 48),
         child: Column(
           children: [
             _sectionTag('Global delivery'),
             const SizedBox(height: 18),
-            // Title: "The next billion calls\nwon't be in English." (italic gradient)
             RichText(
               textAlign: TextAlign.center,
               text: TextSpan(
@@ -1172,18 +1626,20 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                   color: textColor,
                 ),
                 children: [
-                  const TextSpan(text: "Built in Bangalore.\nDelivered across "),
+                  const TextSpan(
+                      text: "Built in Bangalore.\nDelivered across "),
                   WidgetSpan(
                     child: ShaderMask(
                       shaderCallback: (b) => gradText.createShader(b),
-                      child: Text('the world.', style: GoogleFonts.playfairDisplay(
-                        fontSize: 48,
-                        fontWeight: FontWeight.w900,
-                        fontStyle: FontStyle.italic,
-                        height: 1.1,
-                        letterSpacing: -1.44,
-                        color: Colors.white,
-                      )),
+                      child: Text('the world.',
+                          style: GoogleFonts.playfairDisplay(
+                            fontSize: 48,
+                            fontWeight: FontWeight.w900,
+                            fontStyle: FontStyle.italic,
+                            height: 1.1,
+                            letterSpacing: -1.44,
+                            color: Colors.white,
+                          )),
                     ),
                   ),
                 ],
@@ -1195,41 +1651,28 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 17.6, color: text3Color, height: 1.7),
             ),
-            const SizedBox(height: 56),
-
-            // ── Earth Globe ── exact CSS radial-gradient layers
-            // margin:56px auto 0; width:340px; height:340px; border-radius:50%
-            // background: 5 radial-gradient layers
-            // box-shadow: ring + glow + drop + inset-dark + inset-light
-            // ::before: highlight spot at 28% 32%
-            // ::after: drop shadow ellipse below globe
+            const SizedBox(height: 28),
             AnimatedBuilder(
               animation: _globeController,
               builder: (_, __) => Column(
                 children: [
-                  CustomPaint(
-                    size: const Size(340, 340),
-                    painter: EarthGlobePainter(
-                      t: _globeController.value,
-                      isDark: isDark,
+                  AnimatedBuilder(
+                    animation: _globeController,
+                    builder: (_, __) => CustomPaint(
+                      size: const Size(360, 360),
+                      painter: EarthGlobePainter(
+                        t: _globeController.value,
+                        isDark: isDark,
+                      ),
                     ),
                   ),
-                  // .earth-globe::after — drop shadow ellipse
-                  // width:360px; height:30px; background:rgba(10,35,66,.18); blur(20px); bottom:-40px
                   Transform.translate(
-                    offset: const Offset(0, -10), // overlap slightly
+                    offset: const Offset(0, -10),
                     child: Container(
                       width: 360,
                       height: 30,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(180),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF0A2342).withOpacity(0.18),
-                            blurRadius: 20,
-                            spreadRadius: 0,
-                          ),
-                        ],
                         color: const Color(0xFF0A2342).withOpacity(0.18),
                       ),
                     ),
@@ -1237,16 +1680,16 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                 ],
               ),
             ),
-
             const SizedBox(height: 48),
-            // Language pills
             SizedBox(
               width: 820,
               child: Wrap(
                 spacing: 12,
                 runSpacing: 12,
                 alignment: WrapAlignment.center,
-                children: langPills.map((p) => _buildLangPill(p.label, p.type)).toList(),
+                children: langPills
+                    .map((p) => _buildLangPill(p.label, p.type))
+                    .toList(),
               ),
             ),
           ],
@@ -1277,29 +1720,27 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                   ? AgniColors.oceanBright.withOpacity(0.12)
                   : Colors.white.withOpacity(0.85)),
         ),
-        boxShadow: gradient != null ? [
-          BoxShadow(
-            color: type == 'ocean'
-                ? AgniColors.oceanBright.withOpacity(isDark ? 0.25 : 0.22)
-                : AgniColors.forestLight.withOpacity(isDark ? 0.22 : 0.22),
-            blurRadius: 20, offset: const Offset(0, 4),
-          ),
-        ] : [
-          BoxShadow(
-            color: AgniColors.oceanMid.withOpacity(0.08),
-            blurRadius: 12, offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: gradient != null
+            ? [
+                BoxShadow(
+                  color: type == 'ocean'
+                      ? AgniColors.oceanBright.withOpacity(isDark ? 0.25 : 0.22)
+                      : AgniColors.forestLight
+                          .withOpacity(isDark ? 0.22 : 0.22),
+                  blurRadius: 20,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : null,
       ),
-      child: Text(label, style: TextStyle(
-        fontSize: 14.4,
-        fontWeight: FontWeight.w500,
-        color: gradient != null ? Colors.white : text2Color,
-      )),
+      child: Text(label,
+          style: TextStyle(
+            fontSize: 14.4,
+            fontWeight: FontWeight.w500,
+            color: gradient != null ? Colors.white : text2Color,
+          )),
     );
   }
-
-  // ─── CTA Banner ───────────────────────────────────────────────────────────
 
   Widget _buildCTABanner() {
     return RevealWidget(
@@ -1309,19 +1750,28 @@ class _AgniLandingPageState extends State<AgniLandingPage>
         margin: const EdgeInsets.fromLTRB(52, 0, 52, 100),
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF040E1C) : AgniColors.lightOceanDeep,
-          gradient: isDark ? const LinearGradient(
-            begin: Alignment(-1, -1),
-            end: Alignment(1, 1),
-            colors: [Color(0xFF040E1C), Color(0xFF071828), Color(0xFF0A2038)],
-          ) : null,
+          gradient: isDark
+              ? const LinearGradient(
+                  begin: Alignment(-1, -1),
+                  end: Alignment(1, 1),
+                  colors: [
+                    Color(0xFF040E1C),
+                    Color(0xFF071828),
+                    Color(0xFF0A2038)
+                  ],
+                )
+              : null,
           borderRadius: BorderRadius.circular(48),
-          border: isDark ? Border.all(
-            color: AgniColors.oceanBright.withOpacity(0.18),
-          ) : null,
+          border: isDark
+              ? Border.all(
+                  color: AgniColors.oceanBright.withOpacity(0.18),
+                )
+              : null,
           boxShadow: [
             BoxShadow(
               color: AgniColors.oceanBright.withOpacity(isDark ? 0.20 : 0.10),
-              blurRadius: 80, offset: const Offset(0, 24),
+              blurRadius: 80,
+              offset: const Offset(0, 24),
             ),
           ],
         ),
@@ -1343,7 +1793,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 80),
+              padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 48),
               child: Column(
                 children: [
                   Text(
@@ -1362,13 +1812,14 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                         shaderCallback: (b) => const LinearGradient(
                           colors: [Color(0xFF7AB8D8), Color(0xFF74C69D)],
                         ).createShader(b),
-                        child: Text('No signup needed.', style: GoogleFonts.playfairDisplay(
-                          fontSize: 56,
-                          fontWeight: FontWeight.w900,
-                          fontStyle: FontStyle.italic,
-                          height: 1.1,
-                          color: Colors.white,
-                        )),
+                        child: Text('No signup needed.',
+                            style: GoogleFonts.playfairDisplay(
+                              fontSize: 56,
+                              fontWeight: FontWeight.w900,
+                              fontStyle: FontStyle.italic,
+                              height: 1.1,
+                              color: Colors.white,
+                            )),
                       ),
                     ],
                   ),
@@ -1399,47 +1850,76 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     );
   }
 
-  // ─── Footer ───────────────────────────────────────────────────────────────
-
   Widget _buildFooter() {
-    final links = ['Technodysis', 'Nitya.AI', 'Careers', 'LinkedIn', 'Twitter', 'hello@technodysis.com'];
+    final links = [
+      'Technodysis',
+      'Nitya.AI',
+      'LinkedIn',
+      'Twitter',
+      'hello@technodysis.com'
+    ];
+    final isCompact = MediaQuery.of(context).size.width < 1200;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 52, vertical: 48),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
       decoration: BoxDecoration(
         color: isDark
             ? const Color(0xFF030A16).withOpacity(0.70)
             : Colors.white.withOpacity(0.42),
-        border: Border(top: BorderSide(
+        border: Border(
+            top: BorderSide(
           color: isDark
               ? AgniColors.oceanBright.withOpacity(0.12)
               : AgniColors.oceanMid.withOpacity(0.12),
         )),
       ),
-      child: Row(
-        children: [
-          ShaderMask(
-            shaderCallback: (b) => gradText.createShader(b),
-            child: Text('Technodysis.', style: GoogleFonts.playfairDisplay(
-              fontSize: 20.8, fontWeight: FontWeight.w900, color: Colors.white,
-            )),
-          ),
-          const Spacer(),
-          Row(
-            children: links.map((link) => Padding(
-              padding: const EdgeInsets.only(left: 28),
-              child: Text(link, style: TextStyle(
-                fontSize: 14,
-                color: text3Color,
-              )),
-            )).toList(),
-          ),
-          const Spacer(),
-          Text('© 2026 Technodysis. All rights reserved.', style: TextStyle(
-            fontSize: 12.8,
-            color: text3Color,
-          )),
-        ],
-      ),
+      child: isCompact
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ShaderMask(
+                  shaderCallback: (b) => gradText.createShader(b),
+                  child: Text('(c) 2024 Technodysis. All rights reserved.',
+                      style: TextStyle(fontSize: 12.8, color: text3Color)),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 18,
+                  runSpacing: 10,
+                  children: links
+                      .map((link) => Text(link,
+                          style: TextStyle(fontSize: 14, color: text3Color)))
+                      .toList(),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                    'Subramanya Arcade, Bannerghatta Main Road, Bengaluru, Karnataka – 560029',
+                    style: TextStyle(fontSize: 12.8, color: text3Color)),
+              ],
+            )
+          : Row(
+              children: [
+                ShaderMask(
+                  shaderCallback: (b) => gradText.createShader(b),
+                  child: Text('(c) 2024 Technodysis. All rights reserved.',
+                      style: TextStyle(fontSize: 12.8, color: text3Color)),
+                ),
+                const Spacer(),
+                Row(
+                  children: links
+                      .map((link) => Padding(
+                            padding: const EdgeInsets.only(left: 28),
+                            child: Text(link,
+                                style:
+                                    TextStyle(fontSize: 14, color: text3Color)),
+                          ))
+                      .toList(),
+                ),
+                const Spacer(),
+                Text(
+                    'Subramanya Arcade, Bannerghatta Main Road, Bengaluru, Karnataka – 560029',
+                    style: TextStyle(fontSize: 12.8, color: text3Color)),
+              ],
+            ),
     );
   }
 
@@ -1458,39 +1938,39 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               ? AgniColors.oceanBright.withOpacity(0.25)
               : AgniColors.oceanMid.withOpacity(0.18),
         ),
-        boxShadow: isDark ? [
-          BoxShadow(color: AgniColors.oceanBright.withOpacity(0.08), blurRadius: 16),
-        ] : null,
       ),
-      child: Text(text.toUpperCase(), style: GoogleFonts.dmMono(
-        fontSize: 12,
-        letterSpacing: 0.10 * 12,
-        color: isDark ? AgniColors.oceanBright : AgniColors.oceanLight,
-        fontWeight: FontWeight.w500,
-      )),
+      child: Text(text.toUpperCase(),
+          style: GoogleFonts.dmMono(
+            fontSize: 12,
+            letterSpacing: 0.10 * 12,
+            color: isDark ? AgniColors.oceanBright : AgniColors.oceanLight,
+            fontWeight: FontWeight.w500,
+          )),
     );
   }
 
   Widget _sectionTitle(String plain, String italic) {
     return Row(
       children: [
-        Text(plain, style: GoogleFonts.playfairDisplay(
-          fontSize: 48,
-          fontWeight: FontWeight.w900,
-          height: 1.1,
-          letterSpacing: -1.44,
-          color: textColor,
-        )),
+        Text(plain,
+            style: GoogleFonts.playfairDisplay(
+              fontSize: 48,
+              fontWeight: FontWeight.w900,
+              height: 1.1,
+              letterSpacing: -1.44,
+              color: textColor,
+            )),
         ShaderMask(
           shaderCallback: (b) => gradText.createShader(b),
-          child: Text(italic, style: GoogleFonts.playfairDisplay(
-            fontSize: 48,
-            fontWeight: FontWeight.w900,
-            fontStyle: FontStyle.italic,
-            height: 1.1,
-            letterSpacing: -1.44,
-            color: Colors.white,
-          )),
+          child: Text(italic,
+              style: GoogleFonts.playfairDisplay(
+                fontSize: 48,
+                fontWeight: FontWeight.w900,
+                fontStyle: FontStyle.italic,
+                height: 1.1,
+                letterSpacing: -1.44,
+                color: Colors.white,
+              )),
         ),
       ],
     );
@@ -1515,15 +1995,17 @@ class _AgniLandingPageState extends State<AgniLandingPage>
         boxShadow: [
           BoxShadow(
             color: AgniColors.oceanBright.withOpacity(isDark ? 0.35 : 0.32),
-            blurRadius: isDark ? 32 : 24, offset: const Offset(0, 8),
+            blurRadius: isDark ? 32 : 24,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: Text(label, style: TextStyle(
-        color: Colors.white,
-        fontSize: small ? 14 : 16,
-        fontWeight: FontWeight.w600,
-      )),
+      child: Text(label,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: small ? 14 : 16,
+            fontWeight: FontWeight.w600,
+          )),
     );
   }
 
@@ -1542,11 +2024,12 @@ class _AgniLandingPageState extends State<AgniLandingPage>
           width: 1.5,
         ),
       ),
-      child: Text(label, style: TextStyle(
-        color: text2Color,
-        fontSize: 16,
-        fontWeight: FontWeight.w500,
-      )),
+      child: Text(label,
+          style: TextStyle(
+            color: text2Color,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          )),
     );
   }
 
@@ -1557,14 +2040,18 @@ class _AgniLandingPageState extends State<AgniLandingPage>
         color: Colors.white.withOpacity(0.95),
         borderRadius: BorderRadius.circular(100),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.30), blurRadius: 32, offset: const Offset(0, 8)),
+          BoxShadow(
+              color: Colors.black.withOpacity(0.30),
+              blurRadius: 32,
+              offset: const Offset(0, 8)),
         ],
       ),
-      child: const Text('Talk to an expert', style: TextStyle(
-        color: Color(0xFF071828),
-        fontSize: 16,
-        fontWeight: FontWeight.w600,
-      )),
+      child: Text(label,
+          style: const TextStyle(
+            color: Color(0xFF071828),
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          )),
     );
   }
 
@@ -1578,113 +2065,55 @@ class _AgniLandingPageState extends State<AgniLandingPage>
           width: 1.5,
         ),
       ),
-      child: Text(label, style: TextStyle(
-        color: AgniColors.darkText2,
-        fontSize: 16,
-        fontWeight: FontWeight.w500,
-      )),
+      child: Text(label,
+          style: TextStyle(
+            color: AgniColors.darkText2,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          )),
     );
   }
+}
+
+// ─── Data classes ─────────────────────────────────────────────────────────────
+
+class _ConversationItem {
+  final String source;
+  final String message;
+  final String? clientMessageId;
+
+  const _ConversationItem({
+    required this.source,
+    required this.message,
+    this.clientMessageId,
+  });
 }
 
 // ─── Reveal Widget ────────────────────────────────────────────────────────────
 
-// ─── Marquee Track ────────────────────────────────────────────────────────────
-// Replicates CSS @keyframes marquee { from{translateX(0)} to{translateX(-50%)} }
-// Items are NOT fixed-width — they size to content + padding:10px 36px, exactly
-// matching the CSS .marquee-item { padding:10px 36px; flex-shrink:0; border-right }
-
-class _MarqueeTrack extends StatelessWidget {
-  final List<String> items;
-  final double progress; // 0..1 from AnimationController
-  final TextStyle textStyle;
-  final Color dividerColor;
-
-  const _MarqueeTrack({
-    required this.items,
-    required this.progress,
-    required this.textStyle,
-    required this.dividerColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // Build items as IntrinsicWidth children so each is sized to text+padding
-    final itemWidgets = items.map((label) => Container(
-      // padding:10px 36px (top/bottom + left/right)
-      padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border(
-          right: BorderSide(color: dividerColor, width: 1),
-        ),
-      ),
-      child: Text(label, style: textStyle),
-    )).toList();
-
-    return LayoutBuilder(
-      builder: (ctx, constraints) {
-        // We need to measure total width of all 20 items.
-        // Since 20 = 10×2, -50% translation = exactly 10 items = seamless.
-        // Use a custom render approach: overflow:hidden + Transform.translate
-        return ClipRect(
-          child: _MarqueeScroller(
-            progress: progress,
-            children: itemWidgets,
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _MarqueeScroller extends StatelessWidget {
-  final double progress;
-  final List<Widget> children;
-
-  const _MarqueeScroller({required this.progress, required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomSingleChildLayout(
-      delegate: _MarqueeLayoutDelegate(),
-      child: OverflowBox(
-        alignment: Alignment.centerLeft,
-        maxWidth: double.infinity,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: children.map((child) => _MarqueeItem(
-            progress: progress,
-            child: child,
-          )).toList(),
-        ),
-      ),
-    );
-  }
-}
-
-class _MarqueeItem extends StatelessWidget {
-  final double progress;
+class RevealWidget extends StatelessWidget {
+  final bool revealed;
   final Widget child;
-  const _MarqueeItem({required this.progress, required this.child});
+
+  const RevealWidget({super.key, required this.revealed, required this.child});
 
   @override
-  Widget build(BuildContext context) => child;
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 700),
+      opacity: revealed ? 1.0 : 0.0,
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 700),
+        offset: revealed ? Offset.zero : const Offset(0, 0.06),
+        curve: Curves.easeOut,
+        child: child,
+      ),
+    );
+  }
 }
 
-class _MarqueeLayoutDelegate extends SingleChildLayoutDelegate {
-  @override
-  bool shouldRelayout(_MarqueeLayoutDelegate old) => false;
-  @override
-  Size getSize(BoxConstraints constraints) =>
-      Size(constraints.maxWidth, constraints.maxHeight);
-  @override
-  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
-      BoxConstraints(maxHeight: constraints.maxHeight);
-  @override
-  Offset getPositionForChild(Size size, Size childSize) => Offset.zero;
-}
+// ─── Marquee ─────────────────────────────────────────────────────────────────
 
-// Stateful marquee that measures its children and translates
 class _MarqueeRow extends StatefulWidget {
   final List<String> items;
   final double progress;
@@ -1705,18 +2134,14 @@ class _MarqueeRow extends StatefulWidget {
 class _MarqueeRowState extends State<_MarqueeRow> {
   @override
   Widget build(BuildContext context) {
-    // Estimate item width from text metrics + padding
-    // padding:10px 36px = 72px horizontal padding per item
-    // We use TextPainter to measure each label
     final tp = TextPainter(textDirection: TextDirection.ltr);
     double totalHalfWidth = 0;
     for (int i = 0; i < widget.items.length ~/ 2; i++) {
       tp.text = TextSpan(text: widget.items[i], style: widget.textStyle);
       tp.layout();
-      totalHalfWidth += tp.width + 72 + 1; // text + horizontal padding + border
+      totalHalfWidth += tp.width + 72 + 1;
     }
 
-    // CSS: translateX(-50%) of the 20-item total = -totalHalfWidth
     final offset = -(widget.progress * totalHalfWidth);
 
     return ClipRect(
@@ -1728,38 +2153,21 @@ class _MarqueeRowState extends State<_MarqueeRow> {
           maxWidth: double.infinity,
           child: Row(
             mainAxisSize: MainAxisSize.min,
-            children: widget.items.map((label) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 10),
-              decoration: BoxDecoration(
-                border: Border(
-                  right: BorderSide(color: widget.dividerColor, width: 1),
-                ),
-              ),
-              child: Text(label, style: widget.textStyle),
-            )).toList(),
+            children: widget.items
+                .map((label) => Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 36, vertical: 10),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          right:
+                              BorderSide(color: widget.dividerColor, width: 1),
+                        ),
+                      ),
+                      child: Text(label, style: widget.textStyle),
+                    ))
+                .toList(),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class RevealWidget extends StatelessWidget {
-  final bool revealed;
-  final Widget child;
-
-  const RevealWidget({super.key, required this.revealed, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 700),
-      opacity: revealed ? 1.0 : 0.0,
-      child: AnimatedSlide(
-        duration: const Duration(milliseconds: 700),
-        offset: revealed ? Offset.zero : const Offset(0, 0.06),
-        curve: Curves.easeOut,
-        child: child,
       ),
     );
   }
@@ -1825,7 +2233,6 @@ class _GlassCardState extends State<_GlassCard> {
 class BackgroundPainter extends CustomPainter {
   final bool isDark;
   final double t;
-
   BackgroundPainter({required this.isDark, required this.t});
 
   @override
@@ -1838,47 +2245,102 @@ class BackgroundPainter extends CustomPainter {
   }
 
   void _paintDark(Canvas canvas, Size size) {
-    final baseRect = Rect.fromLTWH(0, 0, size.width, size.height);
-    canvas.drawRect(baseRect, Paint()..color = const Color(0xFF030D1A));
-
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height),
+        Paint()..color = const Color(0xFF030D1A));
     final blobs = [
-      (size.width * 0.0, size.height * 0.0, 700.0, const Color(0xFF0E3A60), 0.55),
-      (size.width - 150, size.height - 120, 600.0, const Color(0xFF1A4030), 0.45),
-      (size.width * 0.38, size.height * 0.38, 500.0, const Color(0xFF0A2D4A), 0.35),
-      (size.width * 0.78, size.height * 0.15, 350.0, const Color(0xFF2D6A4F), 0.25),
-      (size.width * 0.05, size.height * 0.75, 280.0, const Color(0xFF4EB3D3), 0.10),
+      (
+        size.width * 0.0,
+        size.height * 0.0,
+        700.0,
+        const Color(0xFF0E3A60),
+        0.55
+      ),
+      (
+        size.width - 150,
+        size.height - 120,
+        600.0,
+        const Color(0xFF1A4030),
+        0.45
+      ),
+      (
+        size.width * 0.38,
+        size.height * 0.38,
+        500.0,
+        const Color(0xFF0A2D4A),
+        0.35
+      ),
+      (
+        size.width * 0.78,
+        size.height * 0.15,
+        350.0,
+        const Color(0xFF2D6A4F),
+        0.25
+      ),
+      (
+        size.width * 0.05,
+        size.height * 0.75,
+        280.0,
+        const Color(0xFF4EB3D3),
+        0.10
+      ),
     ];
-
     for (final b in blobs) {
-      final paint = Paint()
-        ..color = b.$4.withOpacity(b.$5)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 80);
-      canvas.drawCircle(Offset(b.$1, b.$2), b.$3 / 2, paint);
+      canvas.drawCircle(
+          Offset(b.$1, b.$2),
+          b.$3 / 2,
+          Paint()
+            ..color = b.$4.withOpacity(b.$5)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 80));
     }
   }
 
   void _paintLight(Canvas canvas, Size size) {
     final baseRect = Rect.fromLTWH(0, 0, size.width, size.height);
-
-    final bgPaint = Paint()..shader = const LinearGradient(
-      begin: Alignment(-0.5, -1),
-      end: Alignment(0.5, 1),
-      colors: [Color(0xFFDAEEF8), Color(0xFFE8F5F0), Color(0xFFD8EEE0)],
-    ).createShader(baseRect);
-    canvas.drawRect(baseRect, bgPaint);
-
+    canvas.drawRect(
+        baseRect,
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment(-0.5, -1),
+            end: Alignment(0.5, 1),
+            colors: [Color(0xFFDAEEF8), Color(0xFFE8F5F0), Color(0xFFD8EEE0)],
+          ).createShader(baseRect));
     final blobs = [
-      (size.width * 0.15, size.height * 0.20, 650.0, const Color(0xFF7AB8D8), 0.18),
-      (size.width - 120, size.height - 100, 550.0, const Color(0xFF52B788), 0.16),
-      (size.width * 0.40, size.height * 0.45, 420.0, const Color(0xFF2D7DA8), 0.12),
-      (size.width * 0.90, size.height * 0.20, 300.0, const Color(0xFF74C69D), 0.14),
+      (
+        size.width * 0.15,
+        size.height * 0.20,
+        650.0,
+        const Color(0xFF7AB8D8),
+        0.18
+      ),
+      (
+        size.width - 120,
+        size.height - 100,
+        550.0,
+        const Color(0xFF52B788),
+        0.16
+      ),
+      (
+        size.width * 0.40,
+        size.height * 0.45,
+        420.0,
+        const Color(0xFF2D7DA8),
+        0.12
+      ),
+      (
+        size.width * 0.90,
+        size.height * 0.20,
+        300.0,
+        const Color(0xFF74C69D),
+        0.14
+      ),
     ];
-
     for (final b in blobs) {
-      final paint = Paint()
-        ..color = b.$4.withOpacity(b.$5)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 70);
-      canvas.drawCircle(Offset(b.$1, b.$2), b.$3 / 2, paint);
+      canvas.drawCircle(
+          Offset(b.$1, b.$2),
+          b.$3 / 2,
+          Paint()
+            ..color = b.$4.withOpacity(b.$5)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 70));
     }
   }
 
@@ -1889,7 +2351,6 @@ class BackgroundPainter extends CustomPainter {
 class GlobeBgPainter extends CustomPainter {
   final bool isDark;
   final double t;
-
   GlobeBgPainter({required this.isDark, required this.t});
 
   @override
@@ -1899,63 +2360,47 @@ class GlobeBgPainter extends CustomPainter {
     final r = (size.width / 2) * pulse;
 
     if (!isDark) {
-      // Light mode: colored radial inside circle
-      final p = Paint()..color = AgniColors.oceanBright.withOpacity(0.15);
-      p.maskFilter = const MaskFilter.blur(BlurStyle.normal, 60);
-      canvas.drawCircle(center, r, p);
+      canvas.drawCircle(
+          center,
+          r,
+          Paint()
+            ..color = AgniColors.oceanBright.withOpacity(0.15)
+            ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 60));
     }
 
-    // Rings
-    final ringPaint = Paint()
-      ..color = (isDark ? AgniColors.oceanBright : AgniColors.oceanMid).withOpacity(0.08)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    canvas.drawCircle(center, r, ringPaint);
-
-    final ringPaint2 = Paint()
-      ..color = (isDark ? AgniColors.forestLight : AgniColors.forestMid).withOpacity(0.06)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    canvas.drawCircle(center, r - 50, ringPaint2);
-
-    final ringPaint3 = Paint()
-      ..color = (isDark ? AgniColors.oceanBright : AgniColors.oceanMid).withOpacity(0.05)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    canvas.drawCircle(center, r - 110, ringPaint3);
+    canvas.drawCircle(
+        center,
+        r,
+        Paint()
+          ..color = (isDark ? AgniColors.oceanBright : AgniColors.oceanMid)
+              .withOpacity(0.08)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1);
+    canvas.drawCircle(
+        center,
+        r - 50,
+        Paint()
+          ..color = (isDark ? AgniColors.forestLight : AgniColors.forestMid)
+              .withOpacity(0.06)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1);
+    canvas.drawCircle(
+        center,
+        r - 110,
+        Paint()
+          ..color = (isDark ? AgniColors.oceanBright : AgniColors.oceanMid)
+              .withOpacity(0.05)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1);
   }
 
   @override
   bool shouldRepaint(GlobeBgPainter old) => old.t != t || old.isDark != isDark;
 }
 
-// ─── Earth Globe Painter ──────────────────────────────────────────────────────
-// Exact CSS replication (light mode):
-//
-// background:
-//   radial-gradient(circle at 32% 38%, #4eb3d3 0%, #2d7da8 25%, transparent 55%),
-//   radial-gradient(circle at 68% 58%, #52b788 0%, #2d6a4f 25%, transparent 55%),
-//   radial-gradient(circle at 20% 70%, #74c69d 0%, transparent 35%),
-//   radial-gradient(circle at 75% 25%, #7ab8d8 0%, transparent 35%),
-//   radial-gradient(circle at 50% 50%, #1a4a6b 0%, #0a2342 100%);
-//
-// box-shadow:
-//   0 0 0 1px rgba(78,179,211,.25),       ← thin ring
-//   0 0 60px rgba(78,179,211,.20),         ← outer glow
-//   0 20px 80px rgba(10,35,66,.30),        ← drop shadow
-//   inset -30px -20px 60px rgba(10,35,66,.40),  ← dark side (bottom-right)
-//   inset 20px 15px 40px rgba(255,255,255,.08);  ← light highlight (top-left)
-//
-// ::before: radial-gradient(circle at 28% 32%, rgba(255,255,255,.15) 0%, transparent 30%)
-// animation: globeSpin 20s ease-in-out infinite alternate
-//   → shift background-position, simulate continent drift
-//
-// Dark mode adds stronger glow: globePulse animation varies box-shadow intensity
-
 class EarthGlobePainter extends CustomPainter {
-  final double t; // 0..1 from AnimationController (globeController, 8s reverse)
+  final double t;
   final bool isDark;
-
   EarthGlobePainter({required this.t, required this.isDark});
 
   @override
@@ -1963,142 +2408,118 @@ class EarthGlobePainter extends CustomPainter {
     final r = size.width / 2;
     final center = Offset(r, r);
     final globeRect = Rect.fromCircle(center: center, radius: r);
+    final spinOffset = math.sin(t * math.pi) * 0.04;
 
-    // globeSpin: 20s ease-in-out infinite alternate — shifts continent positions slightly
-    // We simulate by offsetting patch centers slightly over time
-    final spinOffset = math.sin(t * math.pi) * 0.04; // ±4% drift
-
-    // ── 1. Clip everything to the circle ──────────────────────────────────
     final clipPath = Path()..addOval(globeRect);
     canvas.save();
     canvas.clipPath(clipPath);
 
-    // ── 2. Base layer: radial(50%50%, #1a4a6b → #0a2342) ─────────────────
-    // This is the deepest ocean base
-    final basePaint = Paint()
-      ..shader = RadialGradient(
-        center: Alignment.center,
-        radius: 1.0,
-        colors: const [Color(0xFF1A4A6B), Color(0xFF0A2342)],
-      ).createShader(globeRect);
-    canvas.drawOval(globeRect, basePaint);
+    canvas.drawOval(
+        globeRect,
+        Paint()
+          ..shader = RadialGradient(
+            colors: const [Color(0xFF1A4A6B), Color(0xFF0A2342)],
+          ).createShader(globeRect));
 
-    // ── 3. Continent patch: radial(75% 25%, #7ab8d8 → transparent 35%) ───
-    // Top-right blue water highlight
     _drawRadialPatch(canvas, center, r,
-      cx: 0.75 + spinOffset, cy: 0.25,
-      stop0: 0.0, stop1: 0.35,
-      c0: const Color(0xFF7AB8D8), c1: Colors.transparent,
-    );
-
-    // ── 4. Continent patch: radial(20% 70%, #74c69d → transparent 35%) ───
-    // Bottom-left forest green
+        cx: 0.75 + spinOffset,
+        cy: 0.25,
+        stop1: 0.35,
+        c0: const Color(0xFF7AB8D8),
+        c1: Colors.transparent);
     _drawRadialPatch(canvas, center, r,
-      cx: 0.20 - spinOffset, cy: 0.70,
-      stop0: 0.0, stop1: 0.35,
-      c0: const Color(0xFF74C69D), c1: Colors.transparent,
-    );
-
-    // ── 5. Continent patch: radial(68% 58%, #52b788 → #2d6a4f 25%, transp 55%) ─
-    // Center-right green landmass
+        cx: 0.20 - spinOffset,
+        cy: 0.70,
+        stop1: 0.35,
+        c0: const Color(0xFF74C69D),
+        c1: Colors.transparent);
     _drawRadialPatch(canvas, center, r,
-      cx: 0.68 + spinOffset * 0.5, cy: 0.58,
-      stop0: 0.0, midStop: 0.25, stop1: 0.55,
-      c0: const Color(0xFF52B788), cMid: const Color(0xFF2D6A4F), c1: Colors.transparent,
-    );
-
-    // ── 6. Continent patch: radial(32% 38%, #4eb3d3 → #2d7da8 25%, transp 55%) ─
-    // Top-left ocean blue (painted last = frontmost in CSS stacking = first in CSS list)
+        cx: 0.68 + spinOffset * 0.5,
+        cy: 0.58,
+        stop1: 0.55,
+        midStop: 0.25,
+        c0: const Color(0xFF52B788),
+        cMid: const Color(0xFF2D6A4F),
+        c1: Colors.transparent);
     _drawRadialPatch(canvas, center, r,
-      cx: 0.32 - spinOffset * 0.5, cy: 0.38,
-      stop0: 0.0, midStop: 0.25, stop1: 0.55,
-      c0: const Color(0xFF4EB3D3), cMid: const Color(0xFF2D7DA8), c1: Colors.transparent,
-    );
-
-    // ── 7. ::before highlight: radial(28% 32%, rgba(255,255,255,.15) → transp 30%) ─
+        cx: 0.32 - spinOffset * 0.5,
+        cy: 0.38,
+        stop1: 0.55,
+        midStop: 0.25,
+        c0: const Color(0xFF4EB3D3),
+        cMid: const Color(0xFF2D7DA8),
+        c1: Colors.transparent);
     _drawRadialPatch(canvas, center, r,
-      cx: 0.28, cy: 0.32,
-      stop0: 0.0, stop1: 0.30,
-      c0: Colors.white.withOpacity(0.15), c1: Colors.transparent,
-    );
-
-    canvas.restore(); // end clip
-
-    // ── 8. Inset shadows (simulated as overlays inside clip) ───────────────
-    // inset -30px -20px 60px rgba(10,35,66,.40) → dark bottom-right
-    // inset 20px 15px 40px rgba(255,255,255,.08) → light top-left
-    canvas.save();
-    canvas.clipPath(clipPath);
-
-    // Dark side: bottom-right
-    final darkInset = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(0.7, 0.75),
-        radius: 0.9,
-        colors: [
-          const Color(0xFF0A2342).withOpacity(0.40),
-          Colors.transparent,
-        ],
-      ).createShader(globeRect)
-      ..blendMode = BlendMode.srcOver;
-    canvas.drawOval(globeRect, darkInset);
-
-    // Light side: top-left
-    final lightInset = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.5, -0.55),
-        radius: 0.7,
-        colors: [
-          Colors.white.withOpacity(0.08),
-          Colors.transparent,
-        ],
-      ).createShader(globeRect);
-    canvas.drawOval(globeRect, lightInset);
+        cx: 0.28,
+        cy: 0.32,
+        stop1: 0.30,
+        c0: Colors.white.withOpacity(0.15),
+        c1: Colors.transparent);
 
     canvas.restore();
 
-    // ── 9. Outer glow & ring (box-shadow) ─────────────────────────────────
-    // Dark mode pulses: globePulse 8s ease-in-out infinite
-    final glowPulse = isDark
-        ? 0.20 + math.sin(t * math.pi) * 0.15  // 0.20→0.35
-        : 0.20;
+    canvas.save();
+    canvas.clipPath(clipPath);
+    canvas.drawOval(
+        globeRect,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(0.7, 0.75),
+            radius: 0.9,
+            colors: [
+              const Color(0xFF0A2342).withOpacity(0.40),
+              Colors.transparent,
+            ],
+          ).createShader(globeRect));
+    canvas.drawOval(
+        globeRect,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(-0.5, -0.55),
+            radius: 0.7,
+            colors: [Colors.white.withOpacity(0.08), Colors.transparent],
+          ).createShader(globeRect));
+    canvas.restore();
 
-    // box-shadow: 0 0 0 1px rgba(78,179,211,.25)  ← 1px ring
-    final ringPaint = Paint()
-      ..color = const Color(0xFF4EB3D3).withOpacity(0.25)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-    canvas.drawCircle(center, r + 0.5, ringPaint);
+    final glowPulse = isDark ? 0.20 + math.sin(t * math.pi) * 0.15 : 0.20;
 
-    // box-shadow: 0 0 60px rgba(78,179,211,.20)  ← soft outer glow
-    final glowPaint = Paint()
-      ..color = const Color(0xFF4EB3D3).withOpacity(glowPulse)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 30);
-    canvas.drawCircle(center, r + 2, glowPaint);
-
-    // box-shadow: 0 20px 80px rgba(10,35,66,.30)  ← drop shadow
-    // Drawn as a downward-offset blurred circle
-    final dropPaint = Paint()
-      ..color = const Color(0xFF0A2342).withOpacity(0.30)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 40);
-    canvas.drawCircle(Offset(center.dx, center.dy + 20), r * 0.85, dropPaint);
+    canvas.drawCircle(
+        center,
+        r + 0.5,
+        Paint()
+          ..color = const Color(0xFF4EB3D3).withOpacity(0.25)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1);
+    canvas.drawCircle(
+        center,
+        r + 2,
+        Paint()
+          ..color = const Color(0xFF4EB3D3).withOpacity(glowPulse)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 30));
+    canvas.drawCircle(
+        Offset(center.dx, center.dy + 20),
+        r * 0.85,
+        Paint()
+          ..color = const Color(0xFF0A2342).withOpacity(0.30)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 40));
   }
 
-  /// Draw a radial gradient patch anchored at (cx*diameter, cy*diameter) relative to globe top-left.
-  /// Supports 2-stop or 3-stop gradients matching CSS radial-gradient(circle at X% Y%, c0 s0, [cMid sMid,] c1 s1)
   void _drawRadialPatch(
-    Canvas canvas, Offset center, double r, {
-    required double cx, required double cy,
-    required double stop0, required double stop1,
-    required Color c0, required Color c1,
-    double? midStop, Color? cMid,
+    Canvas canvas,
+    Offset center,
+    double r, {
+    required double cx,
+    required double cy,
+    required double stop1,
+    required Color c0,
+    required Color c1,
+    double? midStop,
+    Color? cMid,
   }) {
-    // Center of this patch in canvas coordinates
     final patchCenter = Offset(
       center.dx + (cx - 0.5) * r * 2,
       center.dy + (cy - 0.5) * r * 2,
     );
-    // Radius of patch = stop1 * globe diameter
     final patchRadius = stop1 * r * 2;
     final patchRect = Rect.fromCircle(center: patchCenter, radius: patchRadius);
 
@@ -2107,21 +2528,260 @@ class EarthGlobePainter extends CustomPainter {
 
     if (midStop != null && cMid != null) {
       colors = [c0, cMid, c1];
-      stops = [stop0, midStop / stop1, 1.0];
+      stops = [0.0, midStop / stop1, 1.0];
     } else {
       colors = [c0, c1];
-      stops = [stop0, 1.0];
+      stops = [0.0, 1.0];
     }
 
-    final paint = Paint()
-      ..shader = RadialGradient(
-        colors: colors,
-        stops: stops,
-      ).createShader(patchRect);
-
-    canvas.drawCircle(patchCenter, patchRadius, paint);
+    canvas.drawCircle(
+        patchCenter,
+        patchRadius,
+        Paint()
+          ..shader = RadialGradient(colors: colors, stops: stops)
+              .createShader(patchRect));
   }
 
   @override
-  bool shouldRepaint(EarthGlobePainter old) => old.t != t || old.isDark != isDark;
+  bool shouldRepaint(EarthGlobePainter old) =>
+      old.t != t || old.isDark != isDark;
+}
+
+class _ContactFormDialog extends StatefulWidget {
+  @override
+  State<_ContactFormDialog> createState() => _ContactFormDialogState();
+}
+
+class _ContactFormDialogState extends State<_ContactFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+
+  final nameController = TextEditingController();
+  final phoneController = TextEditingController();
+  final emailController = TextEditingController();
+
+  bool submitted = false;
+  String? validateName(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "Full name is required";
+    }
+
+    final parts = value.trim().split(" ");
+    if (parts.length < 2) {
+      return "Enter full name (first & last)";
+    }
+
+    final nameRegex = RegExp(r'^[a-zA-Z ]+$');
+    if (!nameRegex.hasMatch(value)) {
+      return "Only letters allowed";
+    }
+
+    return null;
+  }
+
+  String? validatePhone(String? value) {
+    if (value == null || value.isEmpty) {
+      return "Phone number is required";
+    }
+
+    final phoneRegex = RegExp(r'^[6-9]\d{9}$');
+    if (!phoneRegex.hasMatch(value)) {
+      return "Enter valid 10-digit number";
+    }
+
+    return null;
+  }
+
+  String? validateEmail(String? value) {
+    if (value == null || value.isEmpty) {
+      return "Email is required";
+    }
+
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+
+    if (!emailRegex.hasMatch(value)) {
+      return "Enter valid email";
+    }
+
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        width: 420,
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          color: const Color(0xFF08162A).withOpacity(0.85),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: const Color(0xFF4EB3D3).withOpacity(0.25),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF4EB3D3).withOpacity(0.25),
+              blurRadius: 40,
+              spreadRadius: 2,
+            )
+          ],
+        ),
+        child: submitted ? _successView() : _formView(),
+      ),
+    );
+  }
+
+  // 🎯 SUCCESS VIEW
+  Widget _successView() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.check_circle, color: Color(0xFF52B788), size: 60),
+        const SizedBox(height: 16),
+        const Text(
+          "You're all set!",
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          "Someone will get in touch with you shortly.",
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white70, height: 1.5),
+        ),
+        const SizedBox(height: 24),
+        _gradientButton("Close", () {
+          Navigator.pop(context);
+        }),
+      ],
+    );
+  }
+
+  // 🎯 FORM VIEW
+  Widget _formView() {
+    return Form(
+      key: _formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            "Talk to an Expert",
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            "We’ll reach out within 24 hours",
+            style: TextStyle(color: Colors.white60),
+          ),
+          const SizedBox(height: 24),
+          _inputField(
+            "Full Name",
+            nameController,
+            validator: validateName,
+          ),
+          const SizedBox(height: 14),
+          _inputField(
+            "Phone Number",
+            phoneController,
+            keyboard: TextInputType.phone,
+            validator: validatePhone,
+          ),
+          const SizedBox(height: 14),
+          _inputField(
+            "Email Address",
+            emailController,
+            keyboard: TextInputType.emailAddress,
+            validator: validateEmail,
+          ),
+          const SizedBox(height: 24),
+          _gradientButton("Submit", () {
+            if (_formKey.currentState!.validate()) {
+              setState(() => submitted = true);
+            }
+          }),
+        ],
+      ),
+    );
+  }
+
+  // 🎯 PREMIUM INPUT FIELD
+  Widget _inputField(
+    String label,
+    TextEditingController controller, {
+    TextInputType keyboard = TextInputType.text,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboard,
+      style: const TextStyle(color: Colors.white),
+      validator: validator,
+      decoration: InputDecoration(
+        hintText: label,
+        hintStyle: const TextStyle(color: Colors.white38),
+        filled: true,
+        fillColor: Colors.white.withOpacity(0.05),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(
+            color: Colors.white.withOpacity(0.1),
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(
+            color: Colors.white.withOpacity(0.1),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(
+            color: Color(0xFF4EB3D3),
+            width: 1.5,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 🎯 GRADIENT BUTTON
+  Widget _gradientButton(String text, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF4EB3D3), Color(0xFF52B788)],
+          ),
+          borderRadius: BorderRadius.circular(100),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF4EB3D3).withOpacity(0.4),
+              blurRadius: 20,
+            )
+          ],
+        ),
+        child: Center(
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

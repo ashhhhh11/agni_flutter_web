@@ -1,27 +1,48 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
-Future<dynamic> createWebSocket(String url, Map<String, dynamic> auth) async {
-  return await WebSocket.connect(
-    url,
-    headers: auth.isNotEmpty ? {"Authorization": jsonEncode(auth)} : null,
+Future<WebSocket> createWebSocket(
+    String url, Map<String, dynamic> authPayload) async {
+  return WebSocket.connect(url);
+}
+
+StreamSubscription<dynamic> listenWebSocket(
+  dynamic socket, {
+  required void Function(dynamic) onMessage,
+  required void Function() onDone,
+  required void Function(dynamic) onError,
+}) {
+  return (socket as WebSocket).listen(
+    (data) {
+      // Deliver raw — either String or List<int> (binary TTS audio).
+      if (data is List<int>) {
+        onMessage(Uint8List.fromList(data));
+      } else {
+        onMessage(data);
+      }
+    },
+    onDone: onDone,
+    onError: onError,
+    cancelOnError: true,
   );
 }
 
-StreamSubscription listenWebSocket(
-  dynamic socket, {
-  required Function(dynamic) onMessage,
-  required Function() onDone,
-  required Function(dynamic) onError,
-}) {
-  return socket.listen(onMessage, onDone: onDone, onError: onError);
+/// Send a JSON text frame.
+void sendWebSocket(dynamic socket, String data) {
+  (socket as WebSocket).add(data);
 }
 
-void sendWebSocket(dynamic socket, String data) {
-  socket.add(data);
+/// Send raw binary frame (PCM audio to server).
+void sendBinaryWebSocket(dynamic socket, Uint8List bytes) {
+  (socket as WebSocket).add(bytes);
 }
 
 void closeWebSocket(dynamic socket) {
-  socket?.close();
+  if (socket != null) (socket as WebSocket).close();
+}
+
+bool isWebSocketOpen(dynamic socket) {
+  return socket != null &&
+      (socket as WebSocket).readyState == WebSocket.open;
 }

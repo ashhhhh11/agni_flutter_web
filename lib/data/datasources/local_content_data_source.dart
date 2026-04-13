@@ -3,7 +3,7 @@ import '../../domain/entities/agni_content.dart';
 
 class LocalContentDataSource {
   AgniContent load() {
-    const navItems = ['Services', 'Industries', 'Leadership', 'Contact'];
+    const navItems = [''];
 
     const marqueeItems = [
       'Wipro', 'Lumen', 'Modivcare', 'Quest', 'Carter Bank & Trust',
@@ -16,13 +16,13 @@ class LocalContentDataSource {
     ];
 
     const tickerTags = [
-      'Healthcare', 'Banking', 'Insurance', 'Telecom', 'Retail', 'AI', 'Automation',
+      'Banking', 'Telecom', 'Healthcare', 'Insurance', 'Retail',
     ];
 
     const stats = [
       StatItem('2020', 'Founded in Bangalore, India'),
       StatItem('30+ clients', 'Across USA, India, Europe, MENA, Africa'),
-      StatItem('650+ automations', 'Delivered with RPA and agentic AI'),
+      StatItem('650+    automations', 'Delivered with RPA and agentic AI'),
       StatItem('10x ROI', 'Year-one ROI achieved for banking clients'),
     ];
 
@@ -47,7 +47,7 @@ class LocalContentDataSource {
       ),
       FeatureItem(
         '🧪',
-        'Testing Services',
+        'Automation Testing',
         'Manual and automated QA across web, mobile, APIs with performance and security.',
         'CI/CD ready · reliable releases',
       ),
@@ -68,7 +68,7 @@ class LocalContentDataSource {
     const comparisons = [
       ComparisonCardData(
         isOurs: false,
-        badge: 'Traditional vendors',
+        badge: 'Traditional landscape',
         headline: 'Slow delivery. One-size-fits-all. Limited AI expertise.',
         items: [
           'Long discovery and fixed playbooks',
@@ -97,15 +97,15 @@ class LocalContentDataSource {
       LangPill('Telecom', ''), LangPill('Retail', ''), LangPill('Agentic AI', ''),
       LangPill('RPA', 'ocean'), LangPill('Data & Analytics', ''), LangPill('Testing', ''),
       LangPill('Custom Dev', ''), LangPill('Super Apps', ''), LangPill('Cloud', ''),
-      LangPill('USA', 'forest'), LangPill('India', ''), LangPill('UK', ''),
-      LangPill('Dubai', ''), LangPill('Africa', ''), LangPill('MENA', ''),
-      LangPill('Austin', ''), LangPill('Bangalore', ''), LangPill('London', 'forest'),
-      LangPill('Dubai', ''), LangPill('Ethiopia', ''), LangPill('Zimbabwe', ''),
+      LangPill('USA', 'forest'), LangPill('India', 'forest'), LangPill('UK', 'forest'),
+      LangPill('Africa', 'ocean'),
+      LangPill('Austin', ''),
+      LangPill('ME', 'ocean'),
       LangPill('+ more', ''),
     ];
 
     const floatingCards = [
-      FloatingCardData('650+ automations', 'Delivered', 1.0),
+      // FloatingCardData('650+ automations', 'Delivered', 1.0),
       FloatingCardData('10x ROI', 'Year-one banking ROI', 2.2),
     ];
 

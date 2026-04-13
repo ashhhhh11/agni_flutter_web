@@ -47,6 +47,7 @@ class _AgniAppState extends State<AgniApp> {
       ),
       home: AgniLandingPage(
         content: widget.content,
+        socketService: _socketService,
         isDark: _isDark,
         onToggleTheme: () => setState(() => _isDark = !_isDark),
       ),
