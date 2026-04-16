@@ -1,325 +1,3979 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
-// ─── Pin Data ─────────────────────────────────────────────────────────────────
+/// WireframeDottedGlobe — accurate continent outlines from Natural Earth data.
+/// Usage: WireframeDottedGlobe(size: 340, isDark: isDark)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pin data model
+// ─────────────────────────────────────────────────────────────────────────────
 
 class GlobePin {
-  final String name;
+  final String label;
   final double lat;
   final double lon;
-  final Color color;
-  const GlobePin({
-    required this.name,
-    required this.lat,
-    required this.lon,
-    required this.color,
-  });
+  const GlobePin({required this.label, required this.lat, required this.lon});
 }
 
 const List<GlobePin> globePins = [
-  GlobePin(name: 'USA',   lat: 39,   lon: -98,  color: Color(0xFF60A5FA)),
-  GlobePin(name: 'UK',    lat: 52,   lon: -1,   color: Color(0xFFC084FC)),
-  GlobePin(name: 'Dubai', lat: 25.2, lon: 55.3, color: Color(0xFFFBBF24)),
-  GlobePin(name: 'India', lat: 22,   lon: 80,   color: Color(0xFF34D399)),
+  GlobePin(label: 'India',     lat: 20.6,  lon: 78.9),
+  GlobePin(label: 'USA',       lat: 37.1,  lon: -95.7),
+  GlobePin(label: 'UK',        lat: 55.4,  lon: -3.4),
+  GlobePin(label: 'Dubai',     lat: 25.2,  lon: 55.3),
+  GlobePin(label: 'Austin',    lat: 30.3,  lon: -97.7),
+  GlobePin(label: 'London',    lat: 51.5,  lon: -0.1),
+  GlobePin(label: 'Africa',    lat: -8.8,  lon: 25.0),
+  GlobePin(label: 'Ethiopia',  lat: 9.1,   lon: 40.5),
+  GlobePin(label: 'Zimbabwe',  lat: -19.0, lon: 29.9),
+  GlobePin(label: 'Bangalore', lat: 12.9,  lon: 77.6),
 ];
 
-// ─── Continent Polygon Data ───────────────────────────────────────────────────
-// Each entry is a list of [lon, lat] pairs forming a closed polygon.
+// ─────────────────────────────────────────────────────────────────────────────
+// Widget
+// ─────────────────────────────────────────────────────────────────────────────
 
-final List<List<List<double>>> continentPolygons = [
-  // North America
-  [[-168,71],[-140,70],[-125,49],[-123,37],[-117,32],[-97,26],[-90,29],[-84,30],[-80,25],[-80,43],[-75,45],[-67,47],[-53,47],[-60,46],[-65,44],[-70,43],[-74,41],[-76,35],[-80,32],[-82,30],[-90,29.5],[-97,25.8],[-105,20],[-115,32],[-120,34],[-122,37],[-124,47],[-130,54],[-140,59],[-145,61],[-155,59],[-160,55],[-165,62],[-168,65]],
-  // South America
-  [[-80,9],[-76,8],[-72,0],[-70,-5],[-75,-10],[-80,-6],[-81,-2],[-80,-15],[-75,-20],[-70,-30],[-65,-35],[-65,-40],[-68,-53],[-65,-55],[-60,-52],[-53,-33],[-48,-28],[-43,-23],[-38,-13],[-35,-6],[-35,0],[-38,5],[-45,5],[-50,5],[-55,5],[-60,8],[-68,10],[-75,10],[-78,8]],
-  // Europe
-  [[-10,36],[-8,44],[-9,39],[-9,44],[-5,44],[-2,43],[3,43],[5,44],[8,44],[10,54],[12,55],[15,57],[18,60],[20,63],[25,65],[28,70],[30,68],[28,60],[25,55],[22,51],[18,48],[15,44],[12,44],[8,44],[5,44],[3,52],[2,51],[0,51],[-2,52],[-5,50]],
-  // Africa
-  [[-18,15],[-16,12],[-15,5],[-8,4],[-5,5],[0,5],[5,4],[10,5],[15,4],[22,5],[32,4],[40,10],[42,12],[43,15],[42,22],[40,28],[38,30],[36,32],[30,30],[25,30],[22,32],[20,35],[15,37],[10,37],[5,37],[0,35],[-5,35],[-12,30],[-17,25],[-18,20],[-18,15]],
-  // Middle East / Arabian Peninsula
-  [[28,42],[32,36],[36,32],[38,30],[40,28],[42,22],[43,15],[42,12],[50,12],[60,24],[68,22],[72,20],[75,18],[78,14],[80,10],[80,12],[72,34],[68,36],[60,30],[55,26],[50,28],[45,42],[40,42],[35,38]],
-  // Asia (main body)
-  [[40,42],[45,42],[50,46],[55,50],[60,56],[65,52],[70,50],[75,52],[80,55],[85,55],[90,53],[95,55],[100,52],[105,50],[110,48],[115,44],[120,42],[125,40],[130,38],[132,34],[130,32],[125,32],[120,28],[115,26],[110,22],[105,18],[100,12],[98,5],[103,-1],[108,-7],[115,-2],[120,5],[125,10],[130,12],[135,8],[138,10],[142,12],[145,15],[145,40],[142,45],[138,50],[132,48],[128,48],[125,50],[120,52],[115,55],[110,55],[105,52],[100,50],[95,50],[90,52],[85,50],[80,50],[75,55],[70,58],[65,60],[60,60],[55,58],[50,55],[45,50]],
-  // Australia
-  [[115,-22],[118,-20],[122,-18],[128,-15],[136,-12],[138,-15],[140,-18],[142,-22],[147,-38],[149,-40],[151,-36],[153,-28],[150,-24],[145,-18],[140,-15],[136,-12],[130,-15],[122,-20],[115,-22]],
-  // UK
-  [[-5,50],[-3,50],[0,51],[2,51],[1,53],[-2,54],[-5,56],[-6,58],[-5,58],[-3,56],[-1,55],[-3,52],[-5,51]],
-  // Greenland
-  [[-25,63],[-18,63],[-13,65],[-13,67],[-18,68],[-22,68],[-24,66]],
-  // Japan
-  [[130,31],[132,33],[135,35],[138,37],[140,40],[141,42],[140,44],[138,44],[136,42],[134,38],[131,34],[130,32]],
-  // Scandinavia
-  [[8,56],[10,56],[12,55],[15,57],[18,60],[20,63],[25,65],[28,68],[26,70],[22,70],[18,70],[15,68],[12,65],[8,62],[6,58],[8,56]],
-];
-
-// ─── Earth Globe Painter ──────────────────────────────────────────────────────
-
-class EarthGlobePainter extends CustomPainter {
-  final double t;      // 0.0 → 1.0 from AnimationController (use repeat())
+class WireframeDottedGlobe extends StatefulWidget {
+  final double size;
   final bool isDark;
 
-  EarthGlobePainter({required this.t, required this.isDark});
+  const WireframeDottedGlobe({
+    super.key,
+    this.size = 340,
+    required this.isDark,
+  });
 
-  // Convert lat/lon (degrees) → unit sphere XYZ
-  static List<double> _latLonToXYZ(double lat, double lon) {
-    final phi = (90 - lat) * math.pi / 180;
-    final theta = lon * math.pi / 180;
-    return [
-      math.sin(phi) * math.cos(theta),
-      math.cos(phi),
-      math.sin(phi) * math.sin(theta),
-    ];
+  @override
+  State<WireframeDottedGlobe> createState() => _WireframeDottedGlobeState();
+}
+
+class _WireframeDottedGlobeState extends State<WireframeDottedGlobe>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _autoController;
+
+  double _yaw = -1.57;
+  double _pitch = 0.15;
+  double _velocityYaw = 0.0;
+  double _velocityPitch = 0.0;
+  Offset? _lastFocalPoint;
+  bool _isDragging = false;
+
+  static const double _autoRotateSpeed = -0.025;
+  static const double _damping = 0.95;
+  static const double _dragSensitivity = 0.005;
+
+  @override
+  void initState() {
+    super.initState();
+    _autoController = AnimationController(
+      vsync: this,
+      duration: const Duration(days: 1),
+    )
+      ..addListener(_onTick)
+      ..repeat();
   }
 
-  // Project XYZ with horizontal rotation angle → canvas coords
-  // Returns (screenX, screenY, rz) — rz < 0 means back-facing
-  static Map<String, double> _project(
-      List<double> xyz, double angle, double cx, double cy, double R) {
-    final ca = math.cos(angle), sa = math.sin(angle);
-    final rx = xyz[0] * ca - xyz[2] * sa;
-    final rz = xyz[0] * sa + xyz[2] * ca;
-    return {'sx': cx + rx * R, 'sy': cy - xyz[1] * R, 'rz': rz};
+  void _onTick() {
+    setState(() {
+      if (!_isDragging) {
+        _velocityYaw *= _damping;
+        _velocityPitch *= _damping;
+        final autoBoost = (1.0 - _velocityYaw.abs().clamp(0.0, 1.0));
+        _yaw -= _autoRotateSpeed * autoBoost + _velocityYaw;
+        _pitch += _velocityPitch;
+      }
+      _pitch = _pitch.clamp(-math.pi / 2.5, math.pi / 2.5);
+    });
   }
+
+  void _onPanStart(DragStartDetails d) {
+    _isDragging = true;
+    _lastFocalPoint = d.localPosition;
+    _velocityYaw = 0;
+    _velocityPitch = 0;
+  }
+
+  void _onPanUpdate(DragUpdateDetails d) {
+    if (_lastFocalPoint == null) return;
+    final delta = d.localPosition - _lastFocalPoint!;
+    _lastFocalPoint = d.localPosition;
+    setState(() {
+      _velocityYaw = delta.dx * _dragSensitivity;
+      _velocityPitch = delta.dy * _dragSensitivity;
+      _yaw += _velocityYaw;
+      _pitch = (_pitch + _velocityPitch).clamp(-math.pi / 2.5, math.pi / 2.5);
+    });
+  }
+
+  void _onPanEnd(DragEndDetails d) {
+    _isDragging = false;
+    _lastFocalPoint = null;
+    final vel = d.velocity.pixelsPerSecond;
+    _velocityYaw = vel.dx * _dragSensitivity * 0.016;
+    _velocityPitch = vel.dy * _dragSensitivity * 0.016;
+  }
+
+  @override
+  void dispose() {
+    _autoController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.grab,
+      child: GestureDetector(
+        onPanStart: _onPanStart,
+        onPanUpdate: _onPanUpdate,
+        onPanEnd: _onPanEnd,
+        child: SizedBox(
+          width: widget.size,
+          height: widget.size,
+          child: CustomPaint(
+            size: Size(widget.size, widget.size),
+            painter: _GlobePainter(
+              yaw: _yaw,
+              pitch: _pitch,
+              isDark: widget.isDark,
+              pins: globePins,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Painter
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _GlobePainter extends CustomPainter {
+  final double yaw;
+  final double pitch;
+  final bool isDark;
+  final List<GlobePin> pins;
+
+  _GlobePainter({
+    required this.yaw,
+    required this.pitch,
+    required this.isDark,
+    required this.pins,
+  });
+
+  static const Color _oceanBright  = Color(0xFF4EB3D3);
+  static const Color _forestBright = Color(0xFF52B788);
+  static const Color _landColor    = Color(0xFF74C69D);
+  static const Color _pinColorLight    = Color(0xFF0F6E56);
+  static const Color _pinColorDark     = Color(0xFF5DCAA5);
+  static const Color _pinDotColorLight = Color(0xFFFFFFFF);
+  static const Color _pinDotColorDark  = Color(0xFF040C18);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final R = size.width * 0.46;
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    // Full rotation: t goes 0→1, so angle goes 0→2π
-    final angle = t * 2 * math.pi;
+    final r      = size.width / 2;
+    final center = Offset(r, r);
 
-    // ── Ocean background ──────────────────────────────────────────────────────
-    final oceanPaint = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.3, -0.3),
-        radius: 1.0,
-        colors: const [Color(0xFF1A4A7A), Color(0xFF0D2D52), Color(0xFF071828)],
-      ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: R));
+    _drawSphereFill(canvas, center, r);
 
-    final clipPath = Path()
-      ..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: R));
-    canvas.save();
-    canvas.clipPath(clipPath);
-    canvas.drawCircle(Offset(cx, cy), R, oceanPaint);
-
-    // ── Grid lines ────────────────────────────────────────────────────────────
-    final gridPaint = Paint()
-      ..color = const Color(0xFF64B4FF).withOpacity(0.10)
-      ..strokeWidth = 0.5
-      ..style = PaintingStyle.stroke;
-
-    for (double lat = -60; lat <= 60; lat += 20) {
-      final path = Path();
-      bool first = true;
-      for (double lon = -180; lon <= 180; lon += 3) {
-        final v = _latLonToXYZ(lat, lon);
-        final p = _project(v, angle, cx, cy, R);
-        if (p['rz']! < 0) { first = true; continue; }
-        if (first) { path.moveTo(p['sx']!, p['sy']!); first = false; }
-        else { path.lineTo(p['sx']!, p['sy']!); }
-      }
-      canvas.drawPath(path, gridPaint);
-    }
-    for (double lon = -180; lon < 180; lon += 20) {
-      final path = Path();
-      bool first = true;
-      for (double lat = -85; lat <= 85; lat += 3) {
-        final v = _latLonToXYZ(lat, lon);
-        final p = _project(v, angle, cx, cy, R);
-        if (p['rz']! < 0) { first = true; continue; }
-        if (first) { path.moveTo(p['sx']!, p['sy']!); first = false; }
-        else { path.lineTo(p['sx']!, p['sy']!); }
-      }
-      canvas.drawPath(path, gridPaint);
+    final List<_Dot> dots = [];
+    _addGridDots(dots, r, center);
+    _addContinentDots(dots, r, center);
+    dots.sort((a, b) => a.z.compareTo(b.z));
+    for (final dot in dots) {
+      if (dot.z < -0.02) continue;
+      _drawDot(canvas, dot, r);
     }
 
-    // ── Continents ────────────────────────────────────────────────────────────
-    final landFill = Paint()
-      ..color = const Color(0xFF2A7A48)
-      ..style = PaintingStyle.fill;
-    final landStroke = Paint()
-      ..color = const Color(0xFF78DCA0).withOpacity(0.55)
-      ..strokeWidth = 0.8
-      ..style = PaintingStyle.stroke;
+    _drawAtmosphere(canvas, center, r);
+    _drawSpecular(canvas, center, r);
+    _drawPins(canvas, center, r);
+    _drawShadow(canvas, center, r);
+  }
 
-    for (final polygon in continentPolygons) {
-      final path = Path();
-      bool first = true;
-      bool anyVisible = false;
+  (Offset, double) _projectLatLon(double latDeg, double lonDeg, Offset center, double r) {
+    final lat = latDeg * math.pi / 180;
+    final lon = -lonDeg * math.pi / 180;
+    final x0 = math.cos(lat) * math.cos(lon);
+    final y0 = math.sin(lat);
+    final z0 = math.cos(lat) * math.sin(lon);
+    final y1 = y0 * math.cos(pitch) - z0 * math.sin(pitch);
+    final z1 = y0 * math.sin(pitch) + z0 * math.cos(pitch);
+    final x2 = x0 * math.cos(yaw) + z1 * math.sin(yaw);
+    final z2 = -x0 * math.sin(yaw) + z1 * math.cos(yaw);
+    final y2 = y1;
+    return (Offset(center.dx + x2 * r, center.dy - y2 * r), z2);
+  }
 
-      for (final lonLat in polygon) {
-        final lon = lonLat[0], lat = lonLat[1];
-        final v = _latLonToXYZ(lat, lon);
-        final p = _project(v, angle, cx, cy, R);
-        if (p['rz']! < -0.05) { first = true; continue; }
-        anyVisible = true;
-        if (first) { path.moveTo(p['sx']!, p['sy']!); first = false; }
-        else { path.lineTo(p['sx']!, p['sy']!); }
-      }
-
-      if (anyVisible) {
-        path.close();
-        canvas.drawPath(path, landFill);
-        canvas.drawPath(path, landStroke);
-      }
+  void _drawPins(Canvas canvas, Offset center, double r) {
+    final projected = <({GlobePin pin, Offset pos, double z})>[];
+    for (final pin in pins) {
+      final (pos, z) = _projectLatLon(pin.lat, pin.lon, center, r);
+      projected.add((pin: pin, pos: pos, z: z));
     }
+    projected.sort((a, b) => a.z.compareTo(b.z));
+    for (final p in projected) {
+      _drawSinglePin(canvas, p.pin.label, p.pos, p.z, r);
+    }
+  }
 
-    // ── Specular shine ────────────────────────────────────────────────────────
-    final shinePaint = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.5, -0.5),
-        radius: 0.8,
-        colors: [
-          Colors.white.withOpacity(0.10),
-          Colors.white.withOpacity(0.03),
-          Colors.transparent,
-        ],
-      ).createShader(Rect.fromCircle(center: Offset(cx, cy), radius: R));
-    canvas.drawCircle(Offset(cx, cy), R, shinePaint);
-
-    canvas.restore();
-
-    // ── Globe rim ─────────────────────────────────────────────────────────────
+  void _drawSinglePin(Canvas canvas, String label, Offset pos, double z, double r) {
+    final opacity = ((z + 0.15) / 0.30).clamp(0.0, 1.0);
+    if (opacity <= 0.01) return;
+    final pinColor  = (isDark ? _pinColorDark    : _pinColorLight  ).withOpacity(opacity);
+    final dotColor  = (isDark ? _pinDotColorDark : _pinDotColorLight).withOpacity(opacity);
+    final shadowCol = Colors.black.withOpacity(0.18 * opacity);
+    final depth = ((z + 1) / 2).clamp(0.0, 1.0);
+    final scale = 0.75 + depth * 0.25;
+    final stemH = 14.0 * scale;
+    final headR = 5.5  * scale;
+    final dotR  = 2.2  * scale;
+    final headCenter = Offset(pos.dx, pos.dy - stemH - headR);
     canvas.drawCircle(
-      Offset(cx, cy), R,
-      Paint()
-        ..color = const Color(0xFF64B4FF).withOpacity(0.30)
-        ..strokeWidth = 1.5
-        ..style = PaintingStyle.stroke,
+      headCenter.translate(0.5, 1.0), headR,
+      Paint()..color = shadowCol..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
     );
-
-    // ── Atmosphere glow ───────────────────────────────────────────────────────
-    canvas.drawCircle(
-      Offset(cx, cy), R + 14,
-      Paint()
-        ..shader = RadialGradient(
-          radius: 1.0,
-          colors: [
-            Colors.transparent,
-            const Color(0xFF50A0FF).withOpacity(0.00),
-            const Color(0xFF50A0FF).withOpacity(0.18),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.88, 0.94, 1.0],
-        ).createShader(
-            Rect.fromCircle(center: Offset(cx, cy), radius: R + 14)),
+    canvas.drawLine(
+      pos, headCenter.translate(0, headR * 0.9),
+      Paint()..color = pinColor..strokeWidth = 1.5 * scale..strokeCap = StrokeCap.round,
     );
-
-    // ── Pins ──────────────────────────────────────────────────────────────────
-    for (final pin in globePins) {
-      final v = _latLonToXYZ(pin.lat, pin.lon);
-      final p = _project(v, angle, cx, cy, R);
-      if (p['rz']! < 0.08) continue;
-
-      final alpha = ((p['rz']! - 0.08) / 0.25).clamp(0.0, 1.0);
-      final sx = p['sx']!;
-      final sy = p['sy']!;
-      const stemH = 22.0;
-      const dotR = 6.0;
-
-      // Stem
-      canvas.drawLine(
-        Offset(sx, sy),
-        Offset(sx, sy - stemH),
-        Paint()
-          ..color = pin.color.withOpacity(alpha * 0.95)
-          ..strokeWidth = 2.0
-          ..strokeCap = StrokeCap.round,
-      );
-
-      // Pulse ring
-      canvas.drawCircle(
-        Offset(sx, sy - stemH - dotR),
-        dotR + 5,
-        Paint()
-          ..color = pin.color.withOpacity(alpha * 0.25)
-          ..style = PaintingStyle.fill,
-      );
-
-      // Dot fill
-      canvas.drawCircle(
-        Offset(sx, sy - stemH - dotR),
-        dotR,
-        Paint()
-          ..color = pin.color.withOpacity(alpha)
-          ..style = PaintingStyle.fill,
-      );
-
-      // Dot border
-      canvas.drawCircle(
-        Offset(sx, sy - stemH - dotR),
-        dotR,
-        Paint()
-          ..color = Colors.white.withOpacity(alpha * 0.75)
-          ..strokeWidth = 1.2
-          ..style = PaintingStyle.stroke,
-      );
-
-      // Label
-      final tp = TextPainter(
-        text: TextSpan(
-          text: pin.name,
-          style: TextStyle(
-            color: Colors.white.withOpacity(alpha),
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            shadows: [
-              Shadow(
-                color: Colors.black.withOpacity(0.80),
-                blurRadius: 4,
-              ),
-            ],
-          ),
+    canvas.drawCircle(headCenter, headR, Paint()..color = pinColor);
+    canvas.drawCircle(headCenter, dotR,  Paint()..color = dotColor);
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(
+          fontSize: 9.0 * scale, fontWeight: FontWeight.w600,
+          color: pinColor, letterSpacing: 0.2,
+          shadows: [Shadow(color: Colors.white.withOpacity(0.6 * opacity), blurRadius: 3)],
         ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(
-        canvas,
-        Offset(sx - tp.width / 2, sy - stemH - dotR * 2 - tp.height - 4),
-      );
-    }
-
-    // ── Shadow under globe ────────────────────────────────────────────────────
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(cx, cy + R + 10),
-        width: R * 1.6,
-        height: R * 0.18,
       ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final labelX = headCenter.dx + headR + 3 * scale;
+    final labelY = headCenter.dy - tp.height / 2;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(labelX - 2, labelY - 1, tp.width + 4, tp.height + 2),
+        const Radius.circular(3),
+      ),
+      Paint()..color = (isDark ? const Color(0xFF071020) : Colors.white).withOpacity(0.55 * opacity),
+    );
+    tp.paint(canvas, Offset(labelX, labelY));
+  }
+
+  void _addGridDots(List<_Dot> dots, double r, Offset center) {
+    const latLines    = 12;
+    const lonLines    = 18;
+    const dotsPerLine = 64;
+    for (int i = 1; i < latLines; i++) {
+      final lat = -math.pi / 2 + (math.pi / latLines) * i;
+      for (int j = 0; j < dotsPerLine; j++) {
+        final lon = (2 * math.pi / dotsPerLine) * j;
+        dots.add(_project(lat, lon, r, center, type: _DotType.grid));
+      }
+    }
+    for (int i = 0; i < lonLines; i++) {
+      final lon = (2 * math.pi / lonLines) * i;
+      for (int j = 0; j < dotsPerLine; j++) {
+        final lat = -math.pi / 2 + (math.pi / dotsPerLine) * j;
+        dots.add(_project(lat, lon, r, center, type: _DotType.grid));
+      }
+    }
+  }
+
+  void _addContinentDots(List<_Dot> dots, double r, Offset center) {
+    for (final continent in _continents) {
+      final bbox = continent.bbox;
+      const step = 1.2;
+      for (double lat = bbox.minLat; lat <= bbox.maxLat; lat += step) {
+        for (double lon = bbox.minLon; lon <= bbox.maxLon; lon += step) {
+          if (continent.contains(lat, lon)) {
+            final latR = lat * math.pi / 180;
+            final lonR = -lon * math.pi / 180;
+            dots.add(_project(latR, lonR, r, center, type: _DotType.land));
+          }
+        }
+      }
+    }
+  }
+
+  _Dot _project(double lat, double lon, double r, Offset center, {required _DotType type}) {
+    final x0 = math.cos(lat) * math.cos(lon);
+    final y0 = math.sin(lat);
+    final z0 = math.cos(lat) * math.sin(lon);
+    final y1 = y0 * math.cos(pitch) - z0 * math.sin(pitch);
+    final z1 = y0 * math.sin(pitch) + z0 * math.cos(pitch);
+    final x2 = x0 * math.cos(yaw) + z1 * math.sin(yaw);
+    final z2 = -x0 * math.sin(yaw) + z1 * math.cos(yaw);
+    final y2 = y1;
+    return _Dot(x: center.dx + x2 * r, y: center.dy - y2 * r, z: z2, type: type);
+  }
+
+  void _drawDot(Canvas canvas, _Dot dot, double r) {
+    final depth = ((dot.z + 1) / 2).clamp(0.0, 1.0);
+    if (dot.type == _DotType.land) {
+      final dotR    = isDark ? 1.2 + depth * 1.4 : 1.0 + depth * 1.2;
+      final opacity = isDark ? 0.30 + depth * 0.70 : 0.28 + depth * 0.62;
+      canvas.drawCircle(Offset(dot.x, dot.y), dotR,
+          Paint()..color = _landColor.withOpacity(opacity.clamp(0.0, 1.0)));
+    } else {
+      final dotR    = isDark ? 0.6 + depth * 0.7 : 0.55 + depth * 0.65;
+      final opacity = isDark ? 0.04 + depth * 0.22 : 0.04 + depth * 0.18;
+      final color   = depth > 0.5 ? _oceanBright : _forestBright;
+      canvas.drawCircle(Offset(dot.x, dot.y), dotR,
+          Paint()..color = color.withOpacity(opacity.clamp(0.0, 1.0)));
+    }
+  }
+
+  void _drawSphereFill(Canvas canvas, Offset center, double r) {
+    final rect = Rect.fromCircle(center: center, radius: r);
+    if (isDark) {
+      canvas.drawCircle(center, r, Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.3, -0.4), radius: 1.2,
+          colors: const [Color(0xFF0D2137), Color(0xFF071020), Color(0xFF040C18)],
+        ).createShader(rect));
+    } else {
+      canvas.drawCircle(center, r, Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.3, -0.4), radius: 1.2,
+          colors: const [Color(0xFFE8F5FB), Color(0xFFCBE9F4), Color(0xFFB8DFF0)],
+        ).createShader(rect));
+    }
+  }
+
+  void _drawAtmosphere(Canvas canvas, Offset center, double r) {
+    canvas.drawCircle(center, r + 3, Paint()
+      ..color = _oceanBright.withOpacity(isDark ? 0.25 : 0.18)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18));
+    canvas.drawCircle(center, r + 0.5, Paint()
+      ..color = _oceanBright.withOpacity(isDark ? 0.35 : 0.22)
+      ..style = PaintingStyle.stroke..strokeWidth = 1.0);
+    final rect = Rect.fromCircle(center: center, radius: r);
+    canvas.drawCircle(center, r, Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(0.6, 0.7), radius: 0.85,
+        colors: [const Color(0xFF040C18).withOpacity(isDark ? 0.45 : 0.10), Colors.transparent],
+      ).createShader(rect));
+  }
+
+  void _drawSpecular(Canvas canvas, Offset center, double r) {
+    final rect = Rect.fromCircle(center: center, radius: r);
+    canvas.drawCircle(center, r, Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.45, -0.50), radius: 0.55,
+        colors: [Colors.white.withOpacity(isDark ? 0.06 : 0.20), Colors.transparent],
+      ).createShader(rect));
+  }
+
+  void _drawShadow(Canvas canvas, Offset center, double r) {
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(center.dx, center.dy + r + 12), width: r * 1.8, height: r * 0.22),
       Paint()
-        ..color = const Color(0xFF0A2342).withOpacity(0.22)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
+        ..color = const Color(0xFF0A2342).withOpacity(isDark ? 0.30 : 0.18)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 30),
     );
   }
 
   @override
-  bool shouldRepaint(EarthGlobePainter old) =>
-      old.t != t || old.isDark != isDark;
+  bool shouldRepaint(_GlobePainter old) =>
+      old.yaw != yaw || old.pitch != pitch || old.isDark != isDark;
 }
 
-// ─── Usage example ────────────────────────────────────────────────────────────
-//
-// In your widget (with TickerProviderStateMixin):
-//
-//   late AnimationController _globeController;
-//
-//   @override
-//   void initState() {
-//     super.initState();
-//     _globeController = AnimationController(
-//       vsync: this,
-//       duration: const Duration(seconds: 12),
-//     )..repeat();  // <-- use repeat() NOT repeat(reverse: true)
-//   }
-//
-//   // In build():
-//   AnimatedBuilder(
-//     animation: _globeController,
-//     builder: (_, __) => CustomPaint(
-//       size: const Size(360, 360),
-//       painter: EarthGlobePainter(
-//         t: _globeController.value,
-//         isDark: isDark,
-//       ),
-//     ),
-//   )
+// ─────────────────────────────────────────────────────────────────────────────
+// Dot model
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum _DotType { grid, land }
+
+class _Dot {
+  final double x, y, z;
+  final _DotType type;
+  const _Dot({required this.x, required this.y, required this.z, required this.type});
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Continent polygon model
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _BBox {
+  final double minLat, maxLat, minLon, maxLon;
+  const _BBox(this.minLat, this.maxLat, this.minLon, this.maxLon);
+}
+
+class _Continent {
+  final _BBox bbox;
+  final List<List<double>> polygon;
+  const _Continent({required this.bbox, required this.polygon});
+
+  bool contains(double lat, double lon) => _pip(lat, lon, polygon);
+
+  static bool _pip(double lat, double lon, List<List<double>> poly) {
+    bool inside = false;
+    int j = poly.length - 1;
+    for (int i = 0; i < poly.length; i++) {
+      final yi = poly[i][0], xi = poly[i][1];
+      final yj = poly[j][0], xj = poly[j][1];
+      if (((yi > lat) != (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+        inside = !inside;
+      }
+      j = i;
+    }
+    return inside;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTINENT POLYGONS — AUTO-GENERATED from Natural Earth GeoJSON
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Costa Rica
+const _cGeo0 = _Continent(
+  bbox: _BBox(8.23, 11.22, -85.94, -82.55),
+  polygon: [
+    [9.57,-82.55],[9.48,-82.93],[9.07,-82.93],[8.93,-82.72],[8.81,-82.87],[8.63,-82.83],
+    [8.42,-82.91],[8.23,-82.97],[8.45,-83.51],[8.66,-83.71],[8.83,-83.6],[9.05,-83.63],
+    [9.29,-83.91],[9.49,-84.3],[9.62,-84.65],[9.91,-84.71],[10.09,-84.98],[9.8,-84.91],
+    [9.56,-85.11],[9.83,-85.34],[9.93,-85.66],[10.13,-85.8],[10.44,-85.79],[10.75,-85.66],
+    [10.9,-85.94],[11.09,-85.71],[11.22,-85.56],[10.95,-84.9],[11.08,-84.67],[11.0,-84.36],
+    [10.79,-84.19],[10.73,-83.9],[10.94,-83.66],[10.4,-83.4],[9.99,-83.02],[9.57,-82.55],
+  ],
+);
+
+// Nicaragua
+const _cGeo1 = _Continent(
+  bbox: _BBox(10.73, 15.02, -87.67, -83.15),
+  polygon: [
+    [10.94,-83.66],[10.73,-83.9],[10.79,-84.19],[11.0,-84.36],[11.08,-84.67],[10.95,-84.9],
+    [11.22,-85.56],[11.09,-85.71],[11.4,-86.06],[11.81,-86.53],[12.14,-86.75],[12.46,-87.17],
+    [12.91,-87.67],[13.06,-87.56],[12.91,-87.39],[12.98,-87.32],[13.03,-87.01],[13.25,-86.88],
+    [13.26,-86.73],[13.75,-86.76],[13.78,-86.52],[13.77,-86.31],[14.04,-86.1],[13.84,-85.8],
+    [13.96,-85.7],[14.08,-85.51],[14.35,-85.17],[14.56,-85.15],[14.55,-85.05],[14.79,-84.92],
+    [14.82,-84.82],[14.67,-84.65],[14.62,-84.45],[14.75,-84.23],[14.75,-83.98],[14.88,-83.63],
+    [15.02,-83.49],[15.0,-83.15],[14.9,-83.23],[14.68,-83.28],[14.31,-83.18],[13.97,-83.41],
+    [13.57,-83.52],[13.13,-83.55],[12.87,-83.5],[12.42,-83.47],[12.32,-83.63],[11.89,-83.72],
+    [11.63,-83.65],[11.37,-83.86],[11.1,-83.81],[10.94,-83.66],
+  ],
+);
+
+// Haiti
+const _cGeo2 = _Continent(
+  bbox: _BBox(18.03, 19.92, -74.46, -71.62),
+  polygon: [
+    [19.71,-71.71],[19.17,-71.62],[18.79,-71.7],[18.62,-71.95],[18.32,-71.69],[18.04,-71.71],
+    [18.21,-72.37],[18.15,-72.84],[18.22,-73.45],[18.03,-73.92],[18.34,-74.46],[18.66,-74.37],
+    [18.53,-73.45],[18.45,-72.69],[18.67,-72.33],[19.1,-72.79],[19.48,-72.78],[19.64,-73.42],
+    [19.92,-73.19],[19.87,-72.58],[19.71,-71.71],
+  ],
+);
+
+// Dominican Rep.
+const _cGeo3 = _Continent(
+  bbox: _BBox(17.6, 19.88, -71.95, -68.32),
+  polygon: [
+    [18.04,-71.71],[18.32,-71.69],[18.62,-71.95],[18.79,-71.7],[19.17,-71.62],[19.71,-71.71],
+    [19.88,-71.59],[19.88,-70.81],[19.62,-70.21],[19.65,-69.95],[19.29,-69.77],[19.31,-69.22],
+    [19.02,-69.25],[18.98,-68.81],[18.61,-68.32],[18.21,-68.69],[18.42,-69.16],[18.38,-69.62],
+    [18.43,-69.95],[18.25,-70.13],[18.18,-70.52],[18.43,-70.67],[18.28,-71.0],[17.6,-71.4],
+    [17.76,-71.66],[18.04,-71.71],
+  ],
+);
+
+// El Salvador
+const _cGeo4 = _Continent(
+  bbox: _BBox(13.15, 14.42, -90.1, -87.72),
+  polygon: [
+    [14.42,-89.35],[14.34,-89.06],[14.14,-88.84],[13.98,-88.54],[13.85,-88.5],[13.96,-88.07],
+    [13.89,-87.86],[13.79,-87.72],[13.38,-87.79],[13.15,-87.9],[13.16,-88.48],[13.26,-88.84],
+    [13.46,-89.26],[13.52,-89.81],[13.74,-90.1],[13.88,-90.06],[14.13,-89.72],[14.24,-89.53],
+    [14.36,-89.59],[14.42,-89.35],
+  ],
+);
+
+// Guatemala
+const _cGeo5 = _Continent(
+  bbox: _BBox(13.74, 17.82, -92.23, -88.23),
+  polygon: [
+    [14.54,-92.23],[14.83,-92.2],[15.06,-92.09],[15.25,-92.23],[16.07,-91.75],[16.07,-90.46],
+    [16.41,-90.44],[16.47,-90.6],[16.69,-90.71],[16.92,-91.08],[17.25,-91.45],[17.25,-91.0],
+    [17.82,-91.0],[17.82,-90.07],[17.81,-89.14],[17.02,-89.15],[15.89,-89.23],[15.89,-88.93],
+    [15.71,-88.6],[15.86,-88.52],[15.73,-88.23],[15.35,-88.68],[15.07,-89.15],[14.87,-89.23],
+    [14.68,-89.15],[14.42,-89.35],[14.36,-89.59],[14.24,-89.53],[14.13,-89.72],[13.88,-90.06],
+    [13.74,-90.1],[13.91,-90.61],[13.93,-91.23],[14.13,-91.69],[14.54,-92.23],
+  ],
+);
+
+// Cuba
+const _cGeo6 = _Continent(
+  bbox: _BBox(19.86, 23.19, -84.97, -74.18),
+  polygon: [
+    [23.19,-82.27],[23.12,-81.4],[23.11,-80.62],[22.77,-79.68],[22.4,-79.28],[22.51,-78.35],
+    [22.28,-77.99],[21.66,-77.15],[21.21,-76.52],[21.22,-76.19],[21.02,-75.6],[20.74,-75.67],
+    [20.69,-74.93],[20.28,-74.18],[20.05,-74.3],[19.92,-74.96],[19.87,-75.63],[19.95,-76.32],
+    [19.86,-77.76],[20.41,-77.09],[20.67,-77.49],[20.74,-78.14],[21.03,-78.48],[21.6,-78.72],
+    [21.56,-79.28],[21.83,-80.22],[22.04,-80.52],[22.19,-81.82],[22.39,-82.17],[22.64,-81.8],
+    [22.69,-82.78],[22.17,-83.49],[22.15,-83.91],[21.91,-84.05],[21.8,-84.55],[21.9,-84.97],
+    [22.2,-84.45],[22.57,-84.23],[22.79,-83.78],[22.98,-83.27],[23.08,-82.51],[23.19,-82.27],
+  ],
+);
+
+// Honduras
+const _cGeo7 = _Continent(
+  bbox: _BBox(12.98, 16.01, -89.35, -83.15),
+  polygon: [
+    [15.0,-83.15],[15.02,-83.49],[14.88,-83.63],[14.75,-83.98],[14.75,-84.23],[14.62,-84.45],
+    [14.67,-84.65],[14.82,-84.82],[14.79,-84.92],[14.55,-85.05],[14.56,-85.15],[14.35,-85.17],
+    [14.08,-85.51],[13.96,-85.7],[13.84,-85.8],[14.04,-86.1],[13.77,-86.31],[13.78,-86.52],
+    [13.75,-86.76],[13.26,-86.73],[13.25,-86.88],[13.03,-87.01],[12.98,-87.32],[13.3,-87.49],
+    [13.38,-87.79],[13.79,-87.72],[13.89,-87.86],[13.96,-88.07],[13.85,-88.5],[13.98,-88.54],
+    [14.14,-88.84],[14.34,-89.06],[14.42,-89.35],[14.68,-89.15],[14.87,-89.23],[15.07,-89.15],
+    [15.35,-88.68],[15.73,-88.23],[15.69,-88.12],[15.86,-87.9],[15.88,-87.62],[15.8,-87.52],
+    [15.85,-87.37],[15.76,-86.9],[15.78,-86.44],[15.89,-86.12],[16.01,-86.0],[15.95,-85.68],
+    [15.89,-85.44],[15.91,-85.18],[16.0,-84.98],[15.86,-84.53],[15.84,-84.37],[15.65,-84.06],
+    [15.42,-83.77],[15.27,-83.41],[15.0,-83.15],
+  ],
+);
+
+// United States of America
+const _cGeo8 = _Continent(
+  bbox: _BBox(25.08, 49.39, -124.69, -66.96),
+  polygon: [
+    [49.0,-122.84],[49,-117.03],[49,-110.05],[49.0,-100.65],[49.38,-95.16],[48.67,-94.33],
+    [48.14,-91.64],[48.02,-89.27],[47.55,-86.46],[46.64,-84.78],[46.41,-84.34],[46.12,-83.89],
+    [45.99,-83.47],[44.44,-82.34],[42.43,-82.9],[41.83,-83.03],[42.21,-81.28],[42.97,-78.92],
+    [43.63,-78.72],[44.02,-76.5],[45.0,-74.87],[45.26,-71.41],[45.91,-70.31],[47.45,-69.24],
+    [47.07,-67.79],[44.81,-66.96],[43.68,-70.12],[42.34,-70.83],[42.15,-70.19],[41.48,-70.64],
+    [41.27,-72.3],[41.12,-72.24],[40.63,-73.98],[40.43,-73.96],[39.2,-74.98],[39.5,-75.53],
+    [38.4,-75.06],[37.26,-76.03],[39.15,-76.35],[38.24,-76.99],[36.9,-75.97],[34.81,-76.36],
+    [33.86,-78.55],[32.51,-80.3],[30.73,-81.49],[28.47,-80.54],[26.88,-80.06],[25.21,-80.38],
+    [25.64,-81.33],[27.5,-82.71],[29.1,-82.93],[29.64,-85.11],[30.4,-86.4],[30.32,-89.18],
+    [29.49,-89.43],[29.31,-89.78],[29.68,-91.63],[29.71,-93.85],[28.74,-95.6],[27.38,-97.37],
+    [25.87,-97.14],[26.37,-99.02],[28.11,-100.11],[29.78,-101.66],[29.27,-103.94],[30.64,-105.04],
+    [31.75,-106.51],[31.34,-109.03],[32.53,-114.81],[32.61,-115.99],[33.62,-117.94],[34.08,-119.08],
+    [34.61,-120.62],[37.55,-122.55],[38.95,-123.73],[41.14,-124.18],[43.71,-124.14],[46.86,-124.08],
+    [48.38,-124.57],[47.36,-122.34],[49.0,-122.84],
+  ],
+);
+
+// United States of America
+const _cGeo9 = _Continent(
+  bbox: _BBox(18.92, 20.27, -156.07, -154.81),
+  polygon: [
+    [20.08,-155.4],[19.99,-155.22],[19.86,-155.06],[19.51,-154.81],[19.45,-154.83],[19.24,-155.22],
+    [19.08,-155.54],[18.92,-155.69],[19.06,-155.94],[19.34,-155.91],[19.7,-156.07],[19.81,-156.02],
+    [19.98,-155.85],[20.17,-155.92],[20.27,-155.86],[20.25,-155.79],[20.08,-155.4],
+  ],
+);
+
+// United States of America
+const _cGeo10 = _Continent(
+  bbox: _BBox(56.73, 57.97, -154.67, -152.14),
+  polygon: [
+    [57.97,-153.23],[57.9,-152.56],[57.59,-152.14],[57.12,-153.01],[56.73,-154.01],[56.99,-154.52],
+    [57.46,-154.67],[57.82,-153.76],[57.97,-153.23],
+  ],
+);
+
+// United States of America
+const _cGeo11 = _Continent(
+  bbox: _BBox(54.4, 71.36, -168.11, -129.98),
+  polygon: [
+    [69.71,-140.99],[69.71,-140.99],[60.31,-141.0],[60,-139.04],[59.56,-138.34],[59.46,-136.48],
+    [59.27,-134.94],[58.41,-133.36],[57.69,-132.73],[55.92,-130.01],[54.8,-130.54],[54.8,-130.54],
+    [55.18,-131.09],[56.37,-132.25],[58.12,-134.08],[58.21,-136.63],[58.5,-137.8],[59.73,-140.83],
+    [60.0,-143.96],[60.88,-147.11],[60.67,-148.22],[59.91,-148.57],[59.37,-150.61],[59.16,-151.72],
+    [60.73,-151.41],[61.28,-150.62],[60.06,-152.58],[59.35,-154.02],[58.15,-154.23],[57.42,-156.31],
+    [56.46,-158.12],[55.99,-158.43],[55.64,-160.29],[55.02,-162.24],[54.4,-164.79],[54.57,-164.94],
+    [55.35,-162.87],[56.01,-160.56],[57.02,-158.68],[57.22,-158.46],[58.33,-157.55],[58.62,-158.19],
+    [58.79,-158.52],[58.93,-159.71],[59.07,-160.36],[58.67,-161.97],[59.27,-162.05],[59.99,-162.52],
+    [60.27,-164.66],[61.07,-165.35],[61.5,-166.12],[62.63,-164.92],[63.22,-163.75],[63.54,-162.26],
+    [63.46,-161.53],[64.22,-160.96],[64.79,-160.78],[64.56,-162.45],[64.34,-162.76],[64.45,-164.96],
+    [65.09,-166.85],[65.67,-168.11],[66.58,-164.47],[66.08,-163.79],[66.74,-162.49],[67.12,-163.72],
+    [68.04,-165.39],[68.88,-166.2],[69.37,-163.17],[69.86,-162.93],[70.45,-160.93],[70.82,-158.12],
+    [71.15,-155.07],[70.7,-154.34],[70.83,-152.21],[70.43,-150.74],[70.21,-147.61],[70.12,-145.69],
+    [70.15,-143.59],[69.71,-140.99],[69.71,-140.99],
+  ],
+);
+
+// United States of America
+const _cGeo12 = _Continent(
+  bbox: _BBox(62.98, 63.78, -171.79, -168.69),
+  polygon: [
+    [63.78,-171.73],[63.59,-171.11],[63.69,-170.49],[63.43,-169.68],[63.3,-168.69],[63.19,-168.77],
+    [62.98,-169.53],[63.19,-170.29],[63.38,-170.67],[63.32,-171.55],[63.41,-171.79],[63.78,-171.73],
+  ],
+);
+
+// Canada
+const _cGeo13 = _Continent(
+  bbox: _BBox(41.68, 71.92, -141.0, -55.68),
+  polygon: [
+    [49.0,-122.84],[50.42,-125.62],[52.33,-127.85],[54.8,-130.54],[55.92,-130.01],[58.86,-134.27],
+    [59.46,-136.48],[60,-139.04],[69.71,-140.99],[68.99,-137.55],[69.51,-132.93],[69.78,-129.11],
+    [69.48,-125.76],[69.56,-123.06],[69.38,-119.94],[68.4,-113.9],[67.81,-110.8],[68.31,-108.81],
+    [68.8,-106.15],[67.65,-101.45],[68.4,-98.56],[67.29,-96.13],[69.69,-95.3],[71.92,-95.21],
+    [69.7,-92.41],[69.26,-89.22],[67.92,-86.31],[69.81,-84.1],[68.67,-81.22],[66.41,-83.34],
+    [66.06,-86.07],[64.03,-89.91],[62.84,-91.93],[58.95,-94.68],[57.09,-92.3],[56.47,-88.04],
+    [55.24,-83.36],[53.28,-82.13],[52.56,-78.6],[55.14,-78.23],[58.05,-77.3],[60.76,-77.77],
+    [62.28,-75.7],[61.53,-71.68],[60.22,-69.62],[58.77,-66.2],[59.44,-63.8],[56.34,-61.8],
+    [54.63,-57.33],[53.27,-55.76],[51.06,-58.77],[50.29,-63.86],[49.07,-68.51],[46.99,-70.26],
+    [49.23,-65.06],[46.24,-64.47],[47.01,-60.52],[44.67,-63.25],[43.62,-66.12],[45.14,-67.14],
+    [47.35,-68.23],[46.69,-70.0],[45.26,-71.41],[45.0,-74.87],[43.63,-76.82],[43.47,-79.17],
+    [42.37,-80.25],[41.68,-82.69],[42.08,-83.12],[44.44,-82.34],[45.99,-83.47],[46.51,-84.14],
+    [46.54,-84.54],[47.55,-86.46],[48.02,-89.27],[48.14,-91.64],[48.84,-94.64],[49,-95.16],
+    [49,-107.05],[49,-116.05],[49.0,-122.84],
+  ],
+);
+
+// Canada
+const _cGeo14 = _Continent(
+  bbox: _BBox(62.16, 62.91, -83.99, -81.88),
+  polygon: [
+    [62.45,-83.99],[62.91,-83.25],[62.9,-81.88],[62.71,-81.9],[62.16,-83.07],[62.18,-83.77],
+    [62.45,-83.99],
+  ],
+);
+
+// Canada
+const _cGeo15 = _Continent(
+  bbox: _BBox(72.74, 73.76, -80.88, -76.25),
+  polygon: [
+    [72.8,-79.78],[73.33,-80.88],[73.69,-80.83],[73.76,-80.35],[73.65,-78.06],[73.1,-76.34],
+    [72.83,-76.25],[72.86,-77.31],[72.88,-78.39],[72.74,-79.49],[72.8,-79.78],
+  ],
+);
+
+// Canada
+const _cGeo16 = _Continent(
+  bbox: _BBox(74.59, 75.65, -96.82, -93.61),
+  polygon: [
+    [74.98,-93.61],[74.59,-94.16],[74.67,-95.61],[74.93,-96.82],[75.38,-96.29],[75.65,-94.85],
+    [75.3,-93.98],[74.98,-93.61],
+  ],
+);
+
+// Canada
+const _cGeo17 = _Continent(
+  bbox: _BBox(77.85, 78.87, -98.63, -95.56),
+  polygon: [
+    [78.77,-96.75],[78.42,-95.56],[78.06,-95.83],[77.85,-97.31],[78.08,-98.12],[78.46,-98.55],
+    [78.87,-98.63],[78.83,-97.34],[78.77,-96.75],
+  ],
+);
+
+// Canada
+const _cGeo18 = _Continent(
+  bbox: _BBox(74.39, 77.16, -97.12, -79.83),
+  polygon: [
+    [74.39,-88.15],[74.52,-89.76],[74.84,-92.42],[75.39,-92.77],[75.88,-92.89],[76.32,-93.89],
+    [76.44,-95.96],[76.75,-97.12],[77.16,-96.75],[77.1,-94.68],[76.78,-93.57],[76.78,-91.61],
+    [76.45,-90.74],[76.07,-90.97],[75.85,-89.82],[75.61,-89.19],[75.57,-87.84],[75.48,-86.38],
+    [75.7,-84.79],[75.78,-82.75],[75.71,-81.13],[75.34,-80.06],[74.92,-79.83],[74.66,-80.46],
+    [74.44,-81.95],[74.56,-83.23],[74.41,-86.1],[74.39,-88.15],
+  ],
+);
+
+// Canada
+const _cGeo19 = _Continent(
+  bbox: _BBox(77.41, 78.15, -113.53, -109.85),
+  polygon: [
+    [78.15,-111.26],[78.0,-109.85],[77.7,-110.19],[77.41,-112.05],[77.73,-113.53],[78.05,-112.72],
+    [78.15,-111.26],
+  ],
+);
+
+// Canada
+const _cGeo20 = _Continent(
+  bbox: _BBox(46.62, 51.63, -59.42, -52.65),
+  polygon: [
+    [51.32,-55.6],[50.69,-56.13],[49.81,-56.8],[50.15,-56.14],[49.94,-55.47],[49.59,-55.82],
+    [49.31,-54.94],[49.56,-54.47],[49.25,-53.48],[48.52,-53.79],[48.69,-53.09],[48.16,-52.96],
+    [47.54,-52.65],[46.66,-53.07],[46.62,-53.52],[46.81,-54.18],[47.63,-53.96],[47.75,-54.24],
+    [46.88,-55.4],[46.92,-56.0],[47.39,-55.29],[47.63,-56.25],[47.57,-57.33],[47.6,-59.27],
+    [47.9,-59.42],[48.25,-58.8],[48.52,-59.23],[49.13,-58.39],[50.72,-57.36],[51.29,-56.74],
+    [51.63,-55.87],[51.59,-55.41],[51.32,-55.6],
+  ],
+);
+
+// Canada
+const _cGeo21 = _Continent(
+  bbox: _BBox(63.05, 65.74, -87.22, -80.1),
+  polygon: [
+    [65.11,-83.88],[64.77,-82.79],[64.46,-81.64],[63.98,-81.55],[64.06,-80.82],[63.73,-80.1],
+    [63.41,-80.99],[63.65,-82.55],[64.1,-83.11],[63.57,-84.1],[63.05,-85.52],[63.64,-85.87],
+    [63.54,-87.22],[64.04,-86.35],[64.82,-86.22],[65.74,-85.88],[65.66,-85.16],[65.22,-84.98],
+    [65.37,-84.46],[65.11,-83.88],
+  ],
+);
+
+// Canada
+const _cGeo22 = _Continent(
+  bbox: _BBox(61.93, 73.8, -90.21, -61.85),
+  polygon: [
+    [72.35,-78.77],[72.75,-77.82],[72.24,-75.61],[71.77,-74.23],[71.33,-74.1],[71.56,-72.24],
+    [70.92,-71.2],[70.53,-68.79],[70.12,-67.91],[69.19,-66.97],[68.72,-68.81],[68.07,-66.45],
+    [67.85,-64.86],[66.93,-63.42],[66.86,-61.85],[66.16,-62.16],[65.0,-63.92],[65.43,-65.15],
+    [66.39,-66.72],[66.26,-68.02],[65.69,-68.14],[65.11,-67.09],[64.65,-65.73],[64.38,-65.32],
+    [63.39,-64.67],[62.67,-65.01],[62.95,-66.28],[63.75,-68.78],[62.88,-67.37],[62.28,-66.33],
+    [61.93,-66.17],[62.33,-68.88],[62.91,-71.02],[63.4,-72.24],[63.68,-71.89],[64.19,-73.38],
+    [64.68,-74.83],[64.39,-74.82],[64.23,-77.71],[64.57,-78.56],[65.31,-77.9],[65.33,-76.02],
+    [65.45,-73.96],[65.81,-74.29],[66.31,-73.94],[67.28,-72.65],[67.73,-72.93],[68.07,-73.31],
+    [68.55,-74.84],[68.89,-76.87],[69.15,-76.23],[69.77,-77.29],[69.83,-78.17],[70.17,-78.96],
+    [69.87,-79.49],[69.74,-81.31],[69.97,-84.94],[70.26,-87.06],[70.41,-88.68],[70.76,-89.51],
+    [71.22,-88.47],[71.22,-89.89],[72.24,-90.21],[73.13,-89.44],[73.54,-88.41],[73.8,-85.83],
+    [73.16,-86.56],[72.53,-85.77],[73.34,-84.85],[73.75,-82.32],[72.72,-80.6],[72.06,-80.75],
+    [72.35,-78.77],
+  ],
+);
+
+// Canada
+const _cGeo23 = _Continent(
+  bbox: _BBox(72.02, 74.13, -96.03, -90.51),
+  polygon: [
+    [74.13,-94.5],[74.1,-92.42],[73.86,-90.51],[72.97,-92.0],[72.77,-93.2],[72.02,-94.27],
+    [72.06,-95.41],[72.94,-96.03],[73.44,-96.02],[73.86,-95.5],[74.13,-94.5],
+  ],
+);
+
+// Canada
+const _cGeo24 = _Continent(
+  bbox: _BBox(75.9, 77.65, -122.85, -116.2),
+  polygon: [
+    [76.12,-122.85],[76.12,-122.85],[76.86,-121.16],[77.51,-119.1],[77.5,-117.57],[77.65,-116.2],
+    [76.88,-116.34],[76.53,-117.11],[76.48,-118.04],[76.05,-119.9],[75.9,-121.5],[76.12,-122.85],
+  ],
+);
+
+// Canada
+const _cGeo25 = _Continent(
+  bbox: _BBox(52.18, 54.17, -133.24, -131.18),
+  polygon: [
+    [54.04,-132.71],[54.12,-131.75],[52.98,-132.05],[52.18,-131.18],[52.18,-131.58],[52.64,-132.18],
+    [53.1,-132.55],[53.41,-133.05],[53.85,-133.24],[54.17,-133.18],[54.04,-132.71],
+  ],
+);
+
+// Canada
+const _cGeo26 = _Continent(
+  bbox: _BBox(77.91, 79.3, -105.49, -99.67),
+  polygon: [
+    [79.3,-105.49],[79.17,-103.53],[78.8,-100.83],[78.32,-100.06],[77.91,-99.67],[78.02,-101.3],
+    [78.34,-102.95],[78.38,-105.18],[78.68,-104.21],[78.92,-105.42],[79.3,-105.49],
+  ],
+);
+
+// Canada
+const _cGeo27 = _Continent(
+  bbox: _BBox(48.37, 50.77, -128.44, -123.51),
+  polygon: [
+    [48.51,-123.51],[48.37,-124.01],[48.83,-125.66],[49.18,-125.95],[49.53,-126.85],[49.81,-127.03],
+    [49.99,-128.06],[50.54,-128.44],[50.77,-128.36],[50.55,-127.31],[50.4,-126.7],[50.3,-125.76],
+    [49.95,-125.42],[49.48,-124.92],[49.06,-123.92],[48.51,-123.51],
+  ],
+);
+
+// Canada
+const _cGeo28 = _Continent(
+  bbox: _BBox(70.9, 74.45, -125.93, -115.51),
+  polygon: [
+    [74.45,-121.54],[74.24,-120.11],[74.19,-117.56],[73.9,-116.58],[73.48,-115.51],[73.22,-116.77],
+    [72.52,-119.22],[71.82,-120.46],[71.38,-120.46],[70.9,-123.09],[71.34,-123.62],[71.87,-125.93],
+    [72.29,-125.5],[73.02,-124.81],[73.68,-123.94],[74.29,-124.92],[74.45,-121.54],
+  ],
+);
+
+// Canada
+const _cGeo29 = _Continent(
+  bbox: _BBox(74.39, 76.79, -117.71, -105.7),
+  polygon: [
+    [75.85,-107.82],[76.01,-106.93],[75.97,-105.88],[75.48,-105.7],[75.01,-106.31],[74.85,-109.7],
+    [74.42,-112.22],[74.39,-113.74],[74.72,-113.87],[75.16,-111.79],[75.04,-116.31],[75.22,-117.71],
+    [76.2,-116.35],[76.48,-115.4],[76.14,-112.59],[75.55,-110.81],[75.47,-109.07],[76.43,-110.5],
+    [76.79,-109.58],[76.68,-108.55],[76.2,-108.21],[75.85,-107.82],
+  ],
+);
+
+// Canada
+const _cGeo30 = _Continent(
+  bbox: _BBox(68.54, 73.31, -119.4, -100.98),
+  polygon: [
+    [73.08,-106.52],[72.67,-105.4],[71.7,-104.77],[70.99,-104.46],[70.5,-102.79],[70.02,-100.98],
+    [69.58,-101.09],[69.5,-102.73],[69.12,-102.09],[68.75,-102.43],[68.91,-104.24],[69.18,-105.96],
+    [69.12,-107.12],[68.78,-109],[68.63,-111.53],[68.54,-113.31],[69.01,-113.85],[69.28,-115.22],
+    [69.17,-116.11],[69.96,-117.34],[70.07,-116.67],[70.24,-115.13],[70.19,-113.72],[70.37,-112.42],
+    [70.6,-114.35],[70.52,-116.49],[70.54,-117.9],[70.91,-118.43],[71.31,-116.11],[71.3,-117.66],
+    [71.56,-119.4],[72.31,-118.56],[72.71,-117.87],[73.31,-115.19],[73.12,-114.17],[72.65,-114.67],
+    [72.96,-112.44],[72.45,-111.05],[72.96,-109.92],[72.63,-109.01],[71.65,-108.19],[72.07,-107.69],
+    [73.09,-108.4],[73.24,-107.52],[73.08,-106.52],
+  ],
+);
+
+// Canada
+const _cGeo31 = _Continent(
+  bbox: _BBox(71.27, 73.84, -102.5, -96.54),
+  polygon: [
+    [72.71,-100.44],[73.36,-101.54],[73.84,-100.36],[73.63,-99.16],[73.76,-97.38],[73.47,-97.12],
+    [72.99,-98.05],[72.56,-96.54],[71.66,-96.72],[71.27,-98.36],[71.36,-99.32],[71.74,-100.01],
+    [72.51,-102.5],[72.83,-102.48],[72.71,-100.44],
+  ],
+);
+
+// Canada
+const _cGeo32 = _Continent(
+  bbox: _BBox(72.76, 73.64, -106.94, -104.5),
+  polygon: [
+    [73.6,-106.6],[73.64,-105.26],[73.42,-104.5],[72.76,-105.38],[73.46,-106.94],[73.6,-106.6],
+  ],
+);
+
+// Canada
+const _cGeo33 = _Continent(
+  bbox: _BBox(74.9, 76.72, -102.57, -97.7),
+  polygon: [
+    [76.72,-98.5],[76.26,-97.74],[75.74,-97.7],[75,-98.16],[74.9,-99.81],[75.06,-100.88],
+    [75.64,-100.86],[75.56,-102.5],[76.34,-102.57],[76.31,-101.49],[76.65,-99.98],[76.59,-98.58],
+    [76.72,-98.5],
+  ],
+);
+
+// Canada
+const _cGeo34 = _Continent(
+  bbox: _BBox(78.22, 81.26, -96.71, -85.81),
+  polygon: [
+    [80.6,-96.02],[80.91,-95.32],[80.98,-94.3],[81.21,-94.74],[81.26,-92.41],[80.72,-91.13],
+    [80.51,-89.45],[80.32,-87.81],[79.66,-87.02],[79.34,-85.81],[79.04,-87.19],[78.29,-89.04],
+    [78.22,-90.8],[78.34,-92.88],[78.75,-93.95],[79.11,-93.94],[79.38,-93.15],[79.37,-94.97],
+    [79.71,-96.08],[80.16,-96.71],[80.6,-96.02],
+  ],
+);
+
+// Canada
+const _cGeo35 = _Continent(
+  bbox: _BBox(76.18, 83.23, -91.59, -61.85),
+  polygon: [
+    [81.89,-91.59],[82.08,-90.1],[82.12,-88.93],[82.28,-86.97],[82.65,-85.5],[82.6,-84.26],
+    [82.32,-83.18],[82.86,-82.42],[83.02,-81.1],[83.13,-79.31],[83.17,-76.25],[83.06,-75.72],
+    [83.23,-72.83],[83.17,-70.67],[83.11,-68.5],[83.03,-65.83],[82.9,-63.68],[82.63,-61.85],
+    [82.36,-61.89],[81.93,-64.33],[81.73,-66.75],[81.5,-67.66],[81.51,-65.48],[80.9,-67.84],
+    [80.62,-69.47],[79.8,-71.18],[79.63,-73.24],[79.43,-73.88],[79.32,-76.91],[79.2,-75.53],
+    [79.02,-76.22],[78.53,-75.39],[78.18,-76.34],[77.9,-77.89],[77.51,-78.36],[77.21,-79.76],
+    [76.98,-79.62],[77.02,-77.91],[76.78,-77.89],[76.18,-80.56],[76.45,-83.17],[76.3,-86.11],
+    [76.42,-87.6],[76.47,-89.49],[76.95,-89.62],[77.18,-87.77],[77.9,-88.26],[77.97,-87.65],
+    [77.54,-84.98],[78.18,-86.34],[78.37,-87.96],[78.76,-87.15],[79.0,-85.38],[79.35,-85.09],
+    [79.74,-86.51],[80.25,-86.93],[80.21,-84.2],[80.1,-83.41],[80.46,-81.85],[80.58,-84.1],
+    [80.52,-87.6],[80.86,-89.37],[81.26,-90.2],[81.55,-91.37],[81.89,-91.59],
+  ],
+);
+
+// Canada
+const _cGeo36 = _Continent(
+  bbox: _BBox(67.1, 68.29, -77.24, -75.1),
+  polygon: [
+    [67.44,-75.22],[67.15,-75.87],[67.1,-76.99],[67.59,-77.24],[68.15,-76.81],[68.29,-75.9],
+    [68.01,-75.11],[67.58,-75.1],[67.44,-75.22],
+  ],
+);
+
+// Canada
+const _cGeo37 = _Continent(
+  bbox: _BBox(68.76, 70.14, -99.8, -95.65),
+  polygon: [
+    [69.49,-96.26],[69.11,-95.65],[68.76,-96.27],[69.06,-97.62],[68.95,-98.43],[69.4,-99.8],
+    [69.71,-98.92],[70.14,-98.22],[69.86,-97.16],[69.68,-96.56],[69.49,-96.26],
+  ],
+);
+
+// Canada
+const _cGeo38 = _Continent(
+  bbox: _BBox(49.09, 49.96, -64.52, -61.81),
+  polygon: [
+    [49.87,-64.52],[49.96,-64.17],[49.71,-62.86],[49.29,-61.84],[49.11,-61.81],[49.09,-62.29],
+    [49.4,-63.59],[49.87,-64.52],
+  ],
+);
+
+// Canada
+const _cGeo39 = _Continent(
+  bbox: _BBox(45.97, 47.04, -64.39, -62.01),
+  polygon: [
+    [47.04,-64.01],[46.55,-63.66],[46.42,-62.94],[46.44,-62.01],[46.03,-62.5],[45.97,-62.87],
+    [46.39,-64.14],[46.73,-64.39],[47.04,-64.01],
+  ],
+);
+
+// Mexico
+const _cGeo40 = _Continent(
+  bbox: _BBox(14.54, 32.72, -117.13, -86.81),
+  polygon: [
+    [32.54,-117.13],[32.72,-114.72],[32.04,-113.3],[31.34,-109.03],[31.75,-108.24],[31.4,-106.14],
+    [30.64,-105.04],[29.57,-104.46],[29.76,-102.48],[29.38,-100.96],[28.11,-100.11],[26.84,-99.3],
+    [26.06,-98.24],[25.87,-97.14],[24.27,-97.7],[22.44,-97.87],[20.64,-97.19],[19.32,-96.29],
+    [18.56,-94.84],[18.42,-93.55],[18.7,-92.04],[19.28,-90.77],[20.71,-90.45],[21.26,-89.6],
+    [21.54,-87.05],[20.85,-86.85],[19.65,-87.62],[19.04,-87.59],[18.52,-88.09],[18.49,-88.49],
+    [18.0,-89.03],[17.81,-89.14],[17.25,-91.0],[16.92,-91.08],[16.47,-90.6],[16.07,-90.46],
+    [15.25,-92.23],[14.83,-92.2],[15.62,-93.36],[16.2,-94.69],[15.65,-96.56],[16.11,-98.01],
+    [16.71,-99.7],[17.65,-101.67],[17.98,-102.48],[18.75,-103.92],[19.95,-105.49],[20.53,-105.4],
+    [21.42,-105.27],[22.27,-105.69],[23.77,-106.91],[25.17,-108.4],[25.82,-109.44],[26.68,-109.8],
+    [27.86,-110.64],[28.47,-111.76],[30.02,-112.81],[31.17,-113.15],[31.52,-114.21],[31.39,-114.94],
+    [30.16,-114.67],[29.06,-113.59],[28.75,-113.27],[28.43,-112.96],[27.17,-112.24],[25.73,-111.28],
+    [24.83,-110.71],[24.27,-110.17],[23.36,-109.41],[22.82,-109.85],[23.43,-110.3],[24.48,-111.67],
+    [26.01,-112.3],[26.77,-113.46],[26.9,-113.85],[27.72,-115.06],[27.74,-114.57],[28.57,-114.16],
+    [29.56,-115.52],[30.84,-116.26],[32.54,-117.13],
+  ],
+);
+
+// Belize
+const _cGeo41 = _Continent(
+  bbox: _BBox(15.89, 18.5, -89.23, -88.11),
+  polygon: [
+    [17.81,-89.14],[17.96,-89.15],[18.0,-89.03],[17.88,-88.85],[18.49,-88.49],[18.5,-88.3],
+    [18.35,-88.3],[18.35,-88.11],[18.08,-88.12],[17.64,-88.29],[17.49,-88.2],[17.13,-88.3],
+    [17.04,-88.24],[16.53,-88.36],[16.27,-88.55],[16.23,-88.73],[15.89,-88.93],[15.89,-89.23],
+    [17.02,-89.15],[17.81,-89.14],
+  ],
+);
+
+// Panama
+const _cGeo42 = _Continent(
+  bbox: _BBox(7.22, 9.61, -82.97, -77.24),
+  polygon: [
+    [8.67,-77.35],[8.52,-77.47],[7.94,-77.24],[7.64,-77.43],[7.71,-77.75],[7.22,-77.88],
+    [7.51,-78.21],[8.05,-78.43],[8.32,-78.18],[8.39,-78.44],[8.72,-78.62],[9.0,-79.12],
+    [8.93,-79.56],[8.58,-79.76],[8.33,-80.16],[8.3,-80.38],[8.09,-80.48],[7.55,-80.0],
+    [7.42,-80.28],[7.27,-80.42],[7.22,-80.89],[7.82,-81.06],[7.65,-81.19],[7.71,-81.52],
+    [8.11,-81.72],[8.18,-82.13],[8.29,-82.39],[8.29,-82.82],[8.07,-82.85],[8.23,-82.97],
+    [8.42,-82.91],[8.63,-82.83],[8.81,-82.87],[8.93,-82.72],[9.07,-82.93],[9.48,-82.93],
+    [9.57,-82.55],[9.21,-82.19],[9.0,-82.21],[8.95,-81.81],[9.03,-81.71],[8.79,-81.44],
+    [8.86,-80.95],[9.11,-80.52],[9.31,-79.91],[9.61,-79.57],[9.55,-79.02],[9.45,-79.06],
+    [9.42,-78.5],[9.25,-78.06],[8.95,-77.73],[8.67,-77.35],
+  ],
+);
+
+// Greenland
+const _cGeo43 = _Continent(
+  bbox: _BBox(60.04, 83.65, -73.3, -12.21),
+  polygon: [
+    [82.63,-46.76],[83.23,-43.41],[83.55,-38.62],[83.65,-35.09],[82.73,-20.85],[82.3,-26.52],
+    [82.2,-31.9],[82.13,-27.86],[82.09,-22.9],[81.73,-22.07],[81.52,-20.62],[81.72,-12.77],
+    [81.29,-12.21],[80.35,-16.85],[80.13,-17.73],[79.4,-18.9],[77.64,-19.67],[76.94,-20.04],
+    [76.63,-21.68],[75.25,-19.6],[74.3,-19.37],[74.22,-21.59],[73.46,-20.76],[73.31,-22.17],
+    [72.63,-22.31],[72.6,-24.28],[72.33,-24.79],[71.47,-22.13],[70.47,-23.54],[70.86,-24.31],
+    [70.75,-25.2],[70.18,-23.73],[70.13,-22.35],[68.47,-27.75],[68.12,-31.78],[67.74,-32.81],
+    [65.98,-36.35],[65.69,-38.38],[65.46,-39.81],[64.14,-40.68],[62.68,-42.82],[61.9,-42.42],
+    [60.1,-43.38],[60.04,-44.79],[60.86,-48.26],[62.38,-49.9],[63.63,-51.63],[65.18,-52.28],
+    [66.84,-53.3],[67.19,-53.97],[68.73,-51.48],[69.93,-50.87],[69.57,-52.01],[69.28,-53.46],
+    [70.29,-54.75],[70.82,-54.36],[70.57,-51.39],[71.55,-54.0],[71.41,-55],[72.59,-54.72],
+    [73.65,-56.12],[74.71,-57.32],[75.52,-58.59],[76.1,-61.27],[76.13,-66.06],[76.38,-69.66],
+    [77.01,-71.4],[77.38,-66.76],[78.04,-73.3],[78.43,-73.16],[79.39,-65.71],[80.12,-68.02],
+    [80.52,-67.15],[81.32,-62.23],[82.03,-60.28],[82.19,-57.21],[81.89,-53.04],[82.06,-48.0],
+    [81.99,-46.6],[82.2,-46.9],[82.63,-46.76],
+  ],
+);
+
+// Jamaica
+const _cGeo44 = _Continent(
+  bbox: _BBox(17.7, 18.52, -78.34, -76.2),
+  polygon: [
+    [18.49,-77.57],[18.4,-76.9],[18.16,-76.37],[17.89,-76.2],[17.87,-76.9],[17.7,-77.21],
+    [17.86,-77.77],[18.23,-78.34],[18.45,-78.22],[18.52,-77.8],[18.49,-77.57],
+  ],
+);
+
+// Indonesia
+const _cGeo45 = _Continent(
+  bbox: _BBox(-9.12, -0.37, 130.52, 141.03),
+  polygon: [
+    [-2.6,141.0],[-5.86,141.02],[-9.12,141.03],[-8.3,140.14],[-8.1,139.13],[-8.38,138.88],
+    [-8.41,137.61],[-7.6,138.04],[-7.32,138.67],[-6.23,138.41],[-5.39,137.93],[-4.55,135.99],
+    [-4.46,135.16],[-3.54,133.66],[-4.02,133.37],[-4.11,132.98],[-3.75,132.76],[-3.31,132.75],
+    [-2.82,131.99],[-2.46,133.07],[-2.48,133.78],[-2.21,133.7],[-2.21,132.23],[-1.62,131.84],
+    [-1.43,130.94],[-0.94,130.52],[-0.7,131.87],[-0.37,132.38],[-0.78,133.99],[-1.15,134.14],
+    [-2.77,134.42],[-3.37,135.46],[-2.31,136.29],[-1.7,137.44],[-1.7,138.33],[-2.05,139.18],
+    [-2.41,139.93],[-2.6,141.0],
+  ],
+);
+
+// Indonesia
+const _cGeo46 = _Continent(
+  bbox: _BBox(-10.36, -8.89, 123.46, 125.09),
+  polygon: [
+    [-8.89,124.97],[-9.09,125.07],[-9.39,125.09],[-10.14,124.44],[-10.36,123.58],[-10.24,123.46],
+    [-9.9,123.55],[-9.29,123.98],[-8.89,124.97],
+  ],
+);
+
+// Indonesia
+const _cGeo47 = _Continent(
+  bbox: _BBox(-4.11, 4.31, 108.95, 119.0),
+  polygon: [
+    [4.14,117.88],[3.23,117.31],[2.29,118.05],[1.83,117.88],[0.9,119.0],[0.78,117.81],
+    [0.1,117.48],[-0.8,117.52],[-1.49,116.56],[-2.48,116.53],[-4.01,116.15],[-3.66,116.0],
+    [-4.11,114.86],[-3.5,114.47],[-3.44,113.76],[-3.12,113.26],[-3.48,112.07],[-2.99,111.7],
+    [-3.05,111.05],[-2.93,110.22],[-1.59,110.07],[-1.31,109.57],[-0.46,109.09],[0.42,108.95],
+    [1.34,109.07],[2.01,109.66],[1.34,109.83],[0.77,110.51],[0.98,111.16],[0.9,111.8],
+    [1.41,112.38],[1.5,112.86],[1.22,113.81],[1.43,114.62],[2.82,115.13],[3.17,115.52],
+    [4.31,115.87],[4.31,117.02],[4.14,117.88],
+  ],
+);
+
+// Indonesia
+const _cGeo48 = _Continent(
+  bbox: _BBox(-3.86, -2.8, 127.9, 130.83),
+  polygon: [
+    [-2.8,129.37],[-3.09,130.47],[-3.86,130.83],[-3.45,129.99],[-3.36,129.16],[-3.43,128.59],
+    [-3.39,127.9],[-2.84,128.14],[-2.8,129.37],
+  ],
+);
+
+// Indonesia
+const _cGeo49 = _Continent(
+  bbox: _BBox(-0.9, 2.17, 127.4, 128.69),
+  polygon: [
+    [2.17,127.93],[1.63,128.0],[1.54,128.59],[1.13,128.69],[0.26,128.64],[0.36,128.12],
+    [-0.25,127.97],[-0.78,128.38],[-0.9,128.1],[-0.27,127.7],[1.01,127.4],[1.81,127.6],
+    [2.17,127.93],
+  ],
+);
+
+// Indonesia
+const _cGeo50 = _Continent(
+  bbox: _BBox(-5.67, 1.64, 118.77, 125.24),
+  polygon: [
+    [0.88,122.93],[0.92,124.08],[1.64,125.07],[1.42,125.24],[0.43,124.44],[0.24,123.69],
+    [0.43,122.72],[0.38,121.06],[0.24,120.18],[-0.52,120.04],[-1.41,120.94],[-0.96,121.48],
+    [-0.62,123.34],[-1.08,123.26],[-0.93,122.82],[-1.52,122.39],[-1.9,121.51],[-3.19,122.45],
+    [-3.53,122.27],[-4.68,123.17],[-5.34,123.16],[-5.63,122.63],[-5.28,122.24],[-4.46,122.72],
+    [-4.85,121.74],[-4.57,121.49],[-4.19,121.62],[-3.6,120.9],[-2.63,120.97],[-2.93,120.31],
+    [-4.1,120.39],[-5.53,120.43],[-5.67,119.8],[-5.38,119.37],[-4.46,119.65],[-3.49,119.5],
+    [-3.49,119.08],[-2.8,118.77],[-2.15,119.18],[-1.35,119.32],[0.15,119.83],[0.57,120.04],
+    [1.31,120.89],[1.01,121.67],[0.88,122.93],
+  ],
+);
+
+// Indonesia
+const _cGeo51 = _Continent(
+  bbox: _BBox(-10.26, -9.36, 118.97, 120.78),
+  polygon: [
+    [-10.26,120.3],[-9.56,118.97],[-9.36,119.9],[-9.67,120.43],[-9.97,120.78],[-10.24,120.72],
+    [-10.26,120.3],
+  ],
+);
+
+// Indonesia
+const _cGeo52 = _Continent(
+  bbox: _BBox(-8.93, -8.09, 119.92, 122.9),
+  polygon: [
+    [-8.54,121.34],[-8.46,122.01],[-8.09,122.9],[-8.65,122.76],[-8.93,121.25],[-8.81,119.92],
+    [-8.44,119.92],[-8.24,120.72],[-8.54,121.34],
+  ],
+);
+
+// Indonesia
+const _cGeo53 = _Continent(
+  bbox: _BBox(-9.04, -8.1, 116.74, 119.13),
+  polygon: [
+    [-8.36,118.26],[-8.28,118.88],[-8.71,119.13],[-8.91,117.97],[-9.04,117.28],[-9.03,116.74],
+    [-8.46,117.08],[-8.45,117.63],[-8.1,117.9],[-8.36,118.26],
+  ],
+);
+
+// Indonesia
+const _cGeo54 = _Continent(
+  bbox: _BBox(-8.75, -5.9, 105.37, 115.71),
+  polygon: [
+    [-6.42,108.49],[-6.78,108.62],[-6.88,110.54],[-6.47,110.76],[-6.95,112.61],[-7.59,112.98],
+    [-7.78,114.48],[-8.37,115.71],[-8.75,114.56],[-8.35,113.46],[-8.38,112.56],[-8.3,111.52],
+    [-8.12,110.59],[-7.74,109.43],[-7.64,108.69],[-7.77,108.28],[-7.35,106.45],[-6.92,106.28],
+    [-6.85,105.37],[-5.9,106.05],[-5.95,107.27],[-6.35,108.07],[-6.42,108.49],
+  ],
+);
+
+// Indonesia
+const _cGeo55 = _Continent(
+  bbox: _BBox(-5.87, 5.48, 95.29, 106.11),
+  polygon: [
+    [-1.08,104.37],[-1.78,104.54],[-2.34,104.89],[-2.43,105.62],[-3.06,106.11],[-4.31,105.86],
+    [-5.85,105.82],[-5.87,104.71],[-5.04,103.87],[-4.22,102.58],[-3.61,102.16],[-2.8,101.4],
+    [-2.05,100.9],[-0.65,100.14],[0.18,99.26],[1.04,98.97],[1.82,98.6],[2.45,97.7],
+    [3.31,97.18],[3.87,96.42],[4.97,95.38],[5.48,95.29],[5.44,95.94],[5.25,97.48],
+    [4.27,98.37],[3.59,99.14],[3.17,99.69],[2.1,100.64],[2.08,101.66],[1.4,102.5],
+    [0.56,103.08],[0.1,103.84],[-0.71,103.44],[-1.06,104.01],[-1.08,104.37],
+  ],
+);
+
+// Malaysia
+const _cGeo56 = _Continent(
+  bbox: _BBox(1.23, 6.64, 100.09, 104.25),
+  polygon: [
+    [6.46,100.09],[6.64,100.26],[6.2,101.08],[5.69,101.15],[5.81,101.81],[6.22,102.14],
+    [6.13,102.37],[5.52,102.96],[4.86,103.38],[4.18,103.44],[3.73,103.33],[3.38,103.43],
+    [2.79,103.5],[2.52,103.85],[1.63,104.25],[1.29,104.23],[1.23,103.52],[1.97,102.57],
+    [2.76,101.39],[3.27,101.27],[3.94,100.7],[4.77,100.56],[5.31,100.2],[6.04,100.31],
+    [6.46,100.09],
+  ],
+);
+
+// Malaysia
+const _cGeo57 = _Continent(
+  bbox: _BBox(0.77, 6.93, 109.66, 119.18),
+  polygon: [
+    [4.14,117.88],[4.31,117.02],[4.31,115.87],[3.17,115.52],[2.82,115.13],[1.43,114.62],
+    [1.22,113.81],[1.5,112.86],[1.41,112.38],[0.9,111.8],[0.98,111.16],[0.77,110.51],
+    [1.34,109.83],[2.01,109.66],[1.66,110.4],[1.85,111.17],[2.7,111.37],[2.89,111.8],
+    [3.1,113.0],[3.89,113.71],[4.53,114.2],[4.01,114.66],[4.35,114.87],[4.32,115.35],
+    [4.96,115.41],[5.45,115.45],[6.14,116.22],[6.92,116.73],[6.93,117.13],[6.42,117.64],
+    [5.99,117.69],[5.71,118.35],[5.41,119.18],[5.02,119.11],[4.97,118.44],[4.48,118.62],
+    [4.14,117.88],
+  ],
+);
+
+// India
+const _cGeo58 = _Continent(
+  bbox: _BBox(7.97, 35.49, 68.18, 97.4),
+  polygon: [
+    [28.26,97.33],[27.88,97.4],[27.08,97.13],[26.57,95.12],[26.0,95.16],[24.68,94.55],
+    [24.08,93.33],[23.04,93.29],[22.28,93.17],[23.63,92.15],[22.99,91.71],[23.5,91.16],
+    [24.13,91.92],[25.15,91.8],[25.13,90.87],[25.97,89.83],[26.45,88.56],[25.77,88.21],
+    [24.87,88.31],[24.23,88.7],[22.88,88.88],[22.06,89.03],[21.7,88.21],[20.74,87.03],
+    [20.15,86.5],[18.3,83.94],[17.02,82.19],[16.56,82.19],[15.95,80.79],[15.14,80.03],
+    [13.01,80.29],[12.06,79.86],[10.31,79.34],[9.22,79.19],[8.93,78.28],[7.97,77.54],
+    [10.3,76.13],[11.31,75.75],[12.74,74.86],[14.62,74.44],[17.93,73.12],[19.21,72.82],
+    [21.36,72.63],[20.88,70.47],[22.09,69.16],[22.84,69.35],[24.36,68.84],[24.36,71.04],
+    [25.72,70.28],[26.94,69.51],[27.91,71.78],[28.96,72.82],[30.98,74.42],[32.27,75.26],
+    [32.76,74.45],[34.32,73.75],[34.5,75.76],[34.65,76.87],[34.32,78.91],[32.99,79.21],
+    [32.62,78.46],[31.52,78.74],[30.18,81.11],[28.79,80.09],[28.42,81.06],[27.36,83.3],
+    [26.73,85.25],[26.63,86.02],[26.41,88.06],[27.45,88.04],[28.09,88.73],[27.3,88.81],
+    [26.72,89.74],[26.81,91.22],[26.84,92.03],[27.77,91.7],[28.64,93.41],[29.28,94.57],
+    [29.45,96.12],[28.41,96.25],[28.26,97.33],
+  ],
+);
+
+// China
+const _cGeo59 = _Continent(
+  bbox: _BBox(18.2, 20.1, 108.63, 111.01),
+  polygon: [
+    [18.2,109.48],[18.51,108.66],[19.37,108.63],[19.82,109.12],[20.1,110.21],[20.08,110.79],
+    [19.7,111.01],[19.26,110.57],[18.68,110.34],[18.2,109.48],
+  ],
+);
+
+// China
+const _cGeo60 = _Continent(
+  bbox: _BBox(20.28, 53.46, 73.68, 135.03),
+  polygon: [
+    [42.35,80.26],[43.18,80.87],[45.54,82.46],[47.45,85.72],[49.21,87.36],[48.07,88.85],
+    [45.72,90.59],[44.98,93.48],[43.32,95.76],[42.75,97.45],[42.51,101.83],[41.6,104.96],
+    [42.52,109.24],[43.74,111.83],[45.1,111.87],[45.34,114.46],[46.67,117.42],[46.69,119.66],
+    [48.07,118.06],[47.73,115.74],[49.89,116.68],[50.58,119.28],[52.52,120.73],[53.43,122.25],
+    [52.79,125.95],[51.35,126.94],[49.44,129.4],[47.79,132.51],[47.58,134.5],[45.14,133.1],
+    [44.11,131.29],[42.4,130.64],[41.99,128.05],[41.5,127.34],[40.57,125.08],[39.17,122.13],
+    [39.75,121.38],[40.59,120.77],[39.2,118.04],[37.9,118.88],[37.87,120.82],[37.45,122.36],
+    [36.11,120.64],[34.36,120.23],[31.69,121.91],[30.14,121.5],[28.23,121.68],[25.74,119.59],
+    [22.78,115.89],[22.22,114.15],[21.55,111.84],[20.28,109.89],[21.72,108.52],[22.22,106.57],
+    [23.35,105.33],[22.71,102.71],[21.17,101.8],[21.44,101.18],[21.74,99.98],[23.14,98.9],
+    [25.08,97.72],[27.51,98.68],[28.26,97.33],[29.45,96.12],[28.64,93.41],[27.77,91.7],
+    [28.3,90.02],[28.09,88.73],[28.2,85.82],[29.32,83.9],[30.42,81.53],[31.52,78.74],
+    [32.99,79.21],[34.32,78.91],[36.67,75.9],[37.99,74.83],[38.51,73.93],[39.89,73.82],
+    [40.43,76.53],[41.58,78.54],[42.35,80.26],
+  ],
+);
+
+// Israel
+const _cGeo61 = _Continent(
+  bbox: _BBox(29.5, 33.28, 34.27, 35.84),
+  polygon: [
+    [32.71,35.72],[32.39,35.55],[32.53,35.18],[31.87,34.97],[31.75,35.23],[31.62,34.97],
+    [31.35,34.93],[31.49,35.4],[31.1,35.42],[29.5,34.92],[29.76,34.82],[31.22,34.27],
+    [31.22,34.27],[31.22,34.27],[31.55,34.56],[31.61,34.49],[32.07,34.75],[32.83,34.96],
+    [33.08,35.1],[33.09,35.13],[33.09,35.46],[33.26,35.55],[33.28,35.82],[32.87,35.84],
+    [32.72,35.7],[32.71,35.72],
+  ],
+);
+
+// Lebanon
+const _cGeo62 = _Continent(
+  bbox: _BBox(33.09, 34.64, 35.13, 36.61),
+  polygon: [
+    [33.28,35.82],[33.26,35.55],[33.09,35.46],[33.09,35.13],[33.91,35.48],[34.61,35.98],
+    [34.64,36.0],[34.59,36.45],[34.2,36.61],[33.82,36.07],[33.28,35.82],
+  ],
+);
+
+// Syria
+const _cGeo63 = _Continent(
+  bbox: _BBox(32.31, 37.23, 35.7, 42.35),
+  polygon: [
+    [32.71,35.72],[32.72,35.7],[32.87,35.84],[33.28,35.82],[33.82,36.07],[34.2,36.61],
+    [34.59,36.45],[34.64,36.0],[35.41,35.91],[35.82,36.15],[36.04,36.42],[36.26,36.69],
+    [36.82,36.74],[36.62,37.07],[36.9,38.17],[36.71,38.7],[36.72,39.52],[37.09,40.67],
+    [37.07,41.21],[37.23,42.35],[36.61,41.84],[36.36,41.29],[35.63,41.38],[34.42,41.01],
+    [33.38,38.79],[32.31,36.83],[32.71,35.72],
+  ],
+);
+
+// South Korea
+const _cGeo64 = _Continent(
+  bbox: _BBox(34.39, 38.61, 126.12, 129.47),
+  polygon: [
+    [37.75,126.17],[37.84,126.24],[37.8,126.68],[38.26,127.07],[38.3,127.78],[38.37,128.21],
+    [38.61,128.35],[37.43,129.21],[36.78,129.46],[35.63,129.47],[35.08,129.09],[34.89,128.19],
+    [34.48,127.39],[34.39,126.49],[34.93,126.37],[35.68,126.56],[36.73,126.12],[36.89,126.86],
+    [37.75,126.17],
+  ],
+);
+
+// North Korea
+const _cGeo65 = _Continent(
+  bbox: _BBox(37.67, 42.99, 124.27, 130.78),
+  polygon: [
+    [42.4,130.64],[42.4,130.64],[42.22,130.78],[42.28,130.4],[41.94,129.97],[41.6,129.67],
+    [40.88,129.71],[40.66,129.19],[40.49,129.01],[40.19,128.63],[40.03,127.97],[39.76,127.53],
+    [39.32,127.5],[39.21,127.39],[39.05,127.78],[38.61,128.35],[38.37,128.21],[38.3,127.78],
+    [38.26,127.07],[37.8,126.68],[37.84,126.24],[37.75,126.17],[37.94,125.69],[37.75,125.57],
+    [37.67,125.28],[37.86,125.24],[37.95,124.98],[38.11,124.71],[38.55,124.99],[38.67,125.22],
+    [38.85,125.13],[39.39,125.39],[39.55,125.32],[39.66,124.74],[39.93,124.27],[40.57,125.08],
+    [41.11,126.18],[41.82,126.87],[41.5,127.34],[41.47,128.21],[41.99,128.05],[42.42,129.6],
+    [42.99,129.99],[42.4,130.64],
+  ],
+);
+
+// Bhutan
+const _cGeo66 = _Continent(
+  bbox: _BBox(26.72, 28.3, 88.81, 92.1),
+  polygon: [
+    [27.77,91.7],[27.45,92.1],[26.84,92.03],[26.81,91.22],[26.88,90.37],[26.72,89.74],
+    [27.1,88.84],[27.3,88.81],[28.04,89.48],[28.3,90.02],[28.06,90.73],[28.04,91.26],
+    [27.77,91.7],
+  ],
+);
+
+// Oman
+const _cGeo67 = _Continent(
+  bbox: _BBox(16.65, 24.92, 52.0, 59.81),
+  polygon: [
+    [22.71,55.21],[23.11,55.23],[23.52,55.53],[23.93,55.53],[24.13,55.98],[24.27,55.8],
+    [24.92,55.89],[24.92,56.4],[24.24,56.85],[23.88,57.4],[23.75,58.14],[23.57,58.73],
+    [22.99,59.18],[22.66,59.45],[22.53,59.81],[22.31,59.81],[21.71,59.44],[21.43,59.28],
+    [21.11,58.86],[20.43,58.49],[20.48,58.03],[20.24,57.83],[19.74,57.67],[19.07,57.79],
+    [18.94,57.69],[18.95,57.23],[18.57,56.61],[18.09,56.51],[17.88,56.28],[17.88,55.66],
+    [17.63,55.27],[17.23,55.27],[16.95,54.79],[17.04,54.24],[16.71,53.57],[16.65,53.11],
+    [17.35,52.78],[19.0,52.0],[20.0,55.0],[22.0,55.67],[22.71,55.21],
+  ],
+);
+
+// Uzbekistan
+const _cGeo68 = _Continent(
+  bbox: _BBox(37.14, 45.59, 55.93, 73.06),
+  polygon: [
+    [41.31,55.97],[45.0,55.93],[45.59,58.5],[45.5,58.69],[44.78,60.24],[44.41,61.06],
+    [43.5,62.01],[43.65,63.19],[43.73,64.9],[43.0,66.1],[41.99,66.02],[41.99,66.51],
+    [41.17,66.71],[41.14,67.99],[40.66,68.26],[40.67,68.63],[41.38,69.07],[42.08,70.39],
+    [42.27,70.96],[42.17,71.26],[41.52,70.42],[41.14,71.16],[41.39,71.87],[40.87,73.06],
+    [40.15,71.77],[40.24,71.01],[40.22,70.6],[40.5,70.46],[40.96,70.67],[40.73,69.33],
+    [40.09,69.01],[39.53,68.54],[39.58,67.7],[39.14,67.44],[38.9,68.18],[38.16,68.39],
+    [37.14,67.83],[37.36,67.08],[37.36,66.52],[37.97,66.55],[38.4,65.22],[38.89,64.17],
+    [39.36,63.52],[40.05,62.37],[41.08,61.88],[41.27,61.55],[41.22,60.47],[41.43,60.08],
+    [42.22,59.98],[42.75,58.63],[42.17,57.79],[41.83,56.93],[41.32,57.1],[41.31,55.97],
+  ],
+);
+
+// Kazakhstan
+const _cGeo69 = _Continent(
+  bbox: _BBox(40.66, 55.39, 46.47, 87.36),
+  polygon: [
+    [49.21,87.36],[48.55,86.6],[48.46,85.77],[47.0,85.16],[47.33,83.18],[45.32,81.95],
+    [44.92,79.97],[43.18,80.87],[42.35,80.26],[42.5,79.64],[42.96,77.66],[42.99,76.0],
+    [42.88,75.64],[43.09,73.65],[42.5,73.49],[42.7,71.19],[42.27,70.96],[42.08,70.39],
+    [40.67,68.63],[40.66,68.26],[41.17,66.71],[41.99,66.51],[41.99,66.02],[43.73,64.9],
+    [43.65,63.19],[44.41,61.06],[44.78,60.24],[45.5,58.69],[45.0,55.93],[41.31,55.97],
+    [42.04,54.76],[42.32,54.08],[42.12,52.94],[42.03,52.45],[42.44,52.69],[43.13,51.34],
+    [44.03,50.89],[44.28,50.34],[44.51,51.28],[45.25,51.32],[45.26,53.04],[46.23,53.22],
+    [46.85,53.04],[47.05,51.19],[46.61,50.03],[46.4,49.1],[47.08,48.69],[47.74,48.06],
+    [48.39,46.47],[49.15,47.04],[50.45,47.55],[49.87,48.58],[50.61,48.7],[51.72,52.33],
+    [51.03,54.53],[51.04,56.78],[51.06,58.36],[50.55,59.64],[50.8,61.34],[51.27,61.59],
+    [52.45,60.93],[52.72,60.74],[52.98,61.7],[54.01,61.44],[54.35,65.18],[54.97,68.17],
+    [55.39,69.07],[55.17,70.87],[54.38,72.22],[54.04,73.51],[53.55,74.38],[54.49,76.89],
+    [54.18,76.53],[50.86,80.04],[51.39,80.57],[51.07,83.38],[50.89,83.94],[50.31,84.42],
+    [49.69,85.54],[49.83,86.83],[49.21,87.36],
+  ],
+);
+
+// Tajikistan
+const _cGeo70 = _Continent(
+  bbox: _BBox(36.74, 40.96, 67.44, 74.98),
+  polygon: [
+    [37.14,67.83],[38.16,68.39],[38.9,68.18],[39.14,67.44],[39.58,67.7],[39.53,68.54],
+    [40.09,69.01],[40.73,69.33],[40.96,70.67],[40.5,70.46],[40.22,70.6],[40.24,71.01],
+    [39.94,70.65],[40.1,69.56],[39.53,69.46],[39.6,70.55],[39.28,71.78],[39.43,73.68],
+    [38.51,73.93],[38.61,74.26],[38.38,74.86],[37.99,74.83],[37.42,74.98],[37.42,73.95],
+    [37.5,73.26],[37.05,72.64],[36.95,72.19],[36.74,71.84],[37.07,71.45],[37.91,71.54],
+    [37.95,71.24],[38.26,71.35],[38.49,70.81],[38.14,70.38],[37.74,70.27],[37.59,70.12],
+    [37.61,69.52],[37.15,69.2],[37.34,68.86],[37.02,68.14],[37.14,67.83],
+  ],
+);
+
+// Mongolia
+const _cGeo71 = _Continent(
+  bbox: _BBox(41.6, 52.05, 87.75, 119.77),
+  polygon: [
+    [49.3,87.75],[49.47,88.81],[50.33,90.71],[50.8,92.23],[50.5,93.1],[50.48,94.15],
+    [50.01,94.82],[49.98,95.81],[49.73,97.26],[50.42,98.23],[51.01,97.83],[52.05,98.86],
+    [51.63,99.98],[51.52,100.89],[51.26,102.07],[50.51,102.26],[50.09,103.68],[50.28,104.62],
+    [50.41,105.89],[50.27,106.89],[49.79,107.87],[49.28,108.48],[49.29,109.4],[49.13,110.66],
+    [49.38,111.58],[49.54,112.9],[50.25,114.36],[50.14,114.96],[49.81,115.49],[49.89,116.68],
+    [49.13,116.19],[48.14,115.49],[47.73,115.74],[47.85,116.31],[47.7,117.3],[48.07,118.06],
+    [47.75,118.87],[47.05,119.77],[46.69,119.66],[46.81,118.87],[46.67,117.42],[46.39,116.72],
+    [45.73,115.99],[45.34,114.46],[44.81,113.46],[45.01,112.44],[45.1,111.87],[44.46,111.35],
+    [44.07,111.67],[43.74,111.83],[43.41,111.13],[42.87,110.41],[42.52,109.24],[42.48,107.74],
+    [42.13,106.13],[41.6,104.96],[41.91,104.52],[41.91,103.31],[42.51,101.83],[42.66,100.85],
+    [42.52,99.52],[42.75,97.45],[42.73,96.35],[43.32,95.76],[44.24,95.31],[44.35,94.69],
+    [44.98,93.48],[45.12,92.13],[45.29,90.95],[45.72,90.59],[46.89,90.97],[47.69,90.28],
+    [48.07,88.85],[48.6,88.01],[49.3,87.75],
+  ],
+);
+
+// Vietnam
+const _cGeo72 = _Continent(
+  bbox: _BBox(8.6, 23.35, 102.17, 109.34),
+  polygon: [
+    [10.49,104.33],[10.89,105.2],[10.96,106.25],[11.57,105.81],[12.34,107.49],[13.54,107.61],
+    [14.2,107.38],[15.2,107.56],[15.91,107.31],[16.6,106.56],[17.49,105.93],[18.67,105.09],
+    [19.27,103.9],[19.62,104.18],[19.89,104.82],[20.76,104.44],[20.77,103.2],[21.68,102.75],
+    [22.46,102.17],[22.71,102.71],[22.7,103.5],[22.82,104.48],[23.35,105.33],[22.98,105.81],
+    [22.79,106.73],[22.22,106.57],[21.81,107.04],[21.55,108.05],[20.7,106.72],[19.75,105.88],
+    [19.06,105.66],[18.0,106.43],[16.7,107.36],[16.08,108.27],[15.28,108.88],[13.43,109.34],
+    [11.67,109.2],[11.01,108.37],[10.36,107.22],[9.53,106.41],[8.6,105.16],[9.24,104.8],
+    [9.92,105.08],[10.49,104.33],
+  ],
+);
+
+// Cambodia
+const _cGeo73 = _Continent(
+  bbox: _BBox(10.49, 14.57, 102.35, 107.61),
+  polygon: [
+    [12.19,102.58],[13.39,102.35],[14.23,102.99],[14.42,104.28],[14.27,105.22],[13.88,106.04],
+    [14.57,106.5],[14.2,107.38],[13.54,107.61],[12.34,107.49],[11.57,105.81],[10.96,106.25],
+    [10.89,105.2],[10.49,104.33],[10.63,103.5],[11.15,103.09],[12.19,102.58],
+  ],
+);
+
+// United Arab Emirates
+const _cGeo74 = _Continent(
+  bbox: _BBox(22.5, 26.06, 51.58, 56.4),
+  polygon: [
+    [24.25,51.58],[24.29,51.76],[24.02,51.79],[24.18,52.58],[24.15,53.4],[24.12,54.01],
+    [24.8,54.69],[25.44,55.44],[26.06,56.07],[25.71,56.26],[24.92,56.4],[24.92,55.89],
+    [24.27,55.8],[24.13,55.98],[23.93,55.53],[23.52,55.53],[23.11,55.23],[22.71,55.21],
+    [22.5,55.01],[23.0,52.0],[24.01,51.62],[24.25,51.58],
+  ],
+);
+
+// Georgia
+const _cGeo75 = _Continent(
+  bbox: _BBox(41.06, 43.55, 39.96, 46.64),
+  polygon: [
+    [43.43,39.96],[43.55,40.08],[43.38,40.92],[43.22,42.39],[42.74,43.76],[42.55,43.93],
+    [42.71,44.54],[42.5,45.47],[42.09,45.78],[41.86,46.4],[41.72,46.15],[41.18,46.64],
+    [41.06,46.5],[41.12,45.96],[41.41,45.22],[41.25,44.97],[41.09,43.58],[41.58,42.62],
+    [41.54,41.55],[41.96,41.7],[42.65,41.45],[43.01,40.88],[43.13,40.32],[43.43,39.96],
+  ],
+);
+
+// Azerbaijan
+const _cGeo76 = _Continent(
+  bbox: _BBox(38.27, 41.86, 44.97, 50.39),
+  polygon: [
+    [41.86,46.4],[41.83,46.69],[41.22,47.37],[41.15,47.82],[41.41,47.99],[41.81,48.58],
+    [41.28,49.11],[40.57,49.62],[40.53,50.08],[40.26,50.39],[40.18,49.57],[39.4,49.4],
+    [39.05,49.22],[38.82,48.86],[38.32,48.88],[38.27,48.63],[38.79,48.01],[39.29,48.36],
+    [39.58,48.06],[39.51,47.69],[38.77,46.51],[39.46,46.48],[39.63,46.03],[39.9,45.61],
+    [40.22,45.89],[40.56,45.36],[40.81,45.56],[40.99,45.18],[41.25,44.97],[41.41,45.22],
+    [41.12,45.96],[41.06,46.5],[41.18,46.64],[41.72,46.15],[41.86,46.4],
+  ],
+);
+
+// Turkey
+const _cGeo77 = _Continent(
+  bbox: _BBox(35.82, 42.04, 26.17, 44.79),
+  polygon: [
+    [37.17,44.77],[37.0,44.29],[37.26,43.94],[37.39,42.78],[37.23,42.35],[37.07,41.21],
+    [37.09,40.67],[36.72,39.52],[36.71,38.7],[36.9,38.17],[36.62,37.07],[36.82,36.74],
+    [36.26,36.69],[36.04,36.42],[35.82,36.15],[36.27,35.78],[36.65,36.16],[36.57,35.55],
+    [36.8,34.71],[36.22,34.03],[36.11,32.51],[36.64,31.7],[36.68,30.62],[36.26,30.39],
+    [36.14,29.7],[36.68,28.73],[36.66,27.64],[37.65,27.05],[38.21,26.32],[38.99,26.8],
+    [39.46,26.17],[40.42,27.28],[40.46,28.82],[41.22,29.24],[41.09,31.15],[41.74,32.35],
+    [42.02,33.51],[42.04,35.17],[41.34,36.91],[40.95,38.35],[41.1,39.51],[41.01,40.37],
+    [41.54,41.55],[41.58,42.62],[41.09,43.58],[40.74,43.75],[40.25,43.66],[40.01,44.4],
+    [39.71,44.79],[39.43,44.11],[38.28,44.42],[37.97,44.23],[37.17,44.77],[37.17,44.77],
+  ],
+);
+
+// Turkey
+const _cGeo78 = _Continent(
+  bbox: _BBox(40.15, 42.14, 26.04, 28.99),
+  polygon: [
+    [41.83,26.12],[42.14,27.14],[42.01,28.0],[41.62,28.12],[41.3,28.99],[41.05,28.81],
+    [41.0,27.62],[40.69,27.19],[40.15,26.36],[40.62,26.04],[40.82,26.06],[40.94,26.29],
+    [41.56,26.6],[41.83,26.12],
+  ],
+);
+
+// Laos
+const _cGeo79 = _Continent(
+  bbox: _BBox(13.88, 22.46, 100.12, 107.56),
+  polygon: [
+    [14.2,107.38],[14.57,106.5],[13.88,106.04],[14.27,105.22],[14.72,105.54],[15.57,105.59],
+    [16.44,104.78],[17.43,104.72],[18.24,103.96],[18.31,103.2],[17.96,103.0],[17.93,102.41],
+    [18.11,102.11],[17.51,101.06],[18.41,101.04],[19.46,101.28],[19.51,100.61],[20.11,100.55],
+    [20.42,100.12],[20.79,100.33],[21.44,101.18],[21.2,101.27],[21.17,101.8],[22.32,101.65],
+    [22.46,102.17],[21.68,102.75],[20.77,103.2],[20.76,104.44],[19.89,104.82],[19.62,104.18],
+    [19.27,103.9],[18.67,105.09],[17.49,105.93],[16.6,106.56],[15.91,107.31],[15.2,107.56],
+    [14.2,107.38],
+  ],
+);
+
+// Kyrgyzstan
+const _cGeo80 = _Continent(
+  bbox: _BBox(39.28, 43.3, 69.46, 80.26),
+  polygon: [
+    [42.27,70.96],[42.7,71.19],[42.85,71.84],[42.5,73.49],[43.09,73.65],[43.3,74.21],
+    [42.88,75.64],[42.99,76.0],[42.96,77.66],[42.86,79.14],[42.5,79.64],[42.35,80.26],
+    [42.12,80.12],[41.58,78.54],[41.19,78.19],[41.07,76.9],[40.43,76.53],[40.56,75.47],
+    [40.37,74.78],[39.89,73.82],[39.66,73.96],[39.43,73.68],[39.28,71.78],[39.6,70.55],
+    [39.53,69.46],[40.1,69.56],[39.94,70.65],[40.24,71.01],[40.15,71.77],[40.87,73.06],
+    [41.39,71.87],[41.14,71.16],[41.52,70.42],[42.17,71.26],[42.27,70.96],
+  ],
+);
+
+// Armenia
+const _cGeo81 = _Continent(
+  bbox: _BBox(38.74, 41.25, 43.58, 46.51),
+  polygon: [
+    [38.77,46.51],[38.74,46.14],[39.32,45.74],[39.47,45.74],[39.47,45.3],[39.74,45.0],
+    [39.71,44.79],[40.01,44.4],[40.25,43.66],[40.74,43.75],[41.09,43.58],[41.25,44.97],
+    [40.99,45.18],[40.81,45.56],[40.56,45.36],[40.22,45.89],[39.9,45.61],[39.63,46.03],
+    [39.46,46.48],[38.77,46.51],
+  ],
+);
+
+// Iraq
+const _cGeo82 = _Continent(
+  bbox: _BBox(29.1, 37.39, 38.79, 48.57),
+  polygon: [
+    [32.16,39.2],[33.38,38.79],[34.42,41.01],[35.63,41.38],[36.36,41.29],[36.61,41.84],
+    [37.23,42.35],[37.39,42.78],[37.26,43.94],[37.0,44.29],[37.17,44.77],[35.98,45.42],
+    [35.68,46.08],[35.09,46.15],[34.75,45.65],[33.97,45.42],[33.02,46.11],[32.47,47.33],
+    [31.71,47.85],[30.98,47.69],[30.99,48.0],[30.45,48.01],[29.93,48.57],[29.98,47.97],
+    [30.06,47.3],[29.1,46.57],[29.18,44.71],[31.19,41.89],[31.89,40.4],[32.16,39.2],
+  ],
+);
+
+// Iran
+const _cGeo83 = _Continent(
+  bbox: _BBox(25.08, 39.71, 44.11, 63.32),
+  polygon: [
+    [29.93,48.57],[30.45,48.01],[30.99,48.0],[30.98,47.69],[31.71,47.85],[32.47,47.33],
+    [33.02,46.11],[33.97,45.42],[34.75,45.65],[35.09,46.15],[35.68,46.08],[35.98,45.42],
+    [37.17,44.77],[37.17,44.77],[37.97,44.23],[38.28,44.42],[39.43,44.11],[39.71,44.79],
+    [39.34,44.95],[38.87,45.46],[38.74,46.14],[38.77,46.51],[39.51,47.69],[39.58,48.06],
+    [39.29,48.36],[38.79,48.01],[38.27,48.63],[38.32,48.88],[37.58,49.2],[37.37,50.15],
+    [36.87,50.84],[36.7,52.26],[36.97,53.83],[37.2,53.92],[37.39,54.8],[37.96,55.51],
+    [37.94,56.18],[38.12,56.62],[38.03,57.33],[37.52,58.44],[37.41,59.23],[36.53,60.38],
+    [36.49,61.12],[35.65,61.21],[34.4,60.8],[33.68,60.53],[33.53,60.96],[32.98,60.54],
+    [32.18,60.86],[31.55,60.94],[31.38,61.7],[30.74,61.78],[29.83,60.87],[29.3,61.37],
+    [28.7,61.77],[28.26,62.73],[27.38,62.76],[27.22,63.23],[26.76,63.32],[26.24,61.87],
+    [25.08,61.5],[25.38,59.62],[25.61,58.53],[25.74,57.4],[26.97,56.97],[27.14,56.49],
+    [26.96,55.72],[26.48,54.72],[26.81,53.49],[27.58,52.48],[27.87,51.52],[28.81,50.85],
+    [30.15,50.12],[29.99,49.58],[30.32,48.94],[29.93,48.57],
+  ],
+);
+
+// Saudi Arabia
+const _cGeo84 = _Continent(
+  bbox: _BBox(16.35, 32.16, 34.63, 55.67),
+  polygon: [
+    [29.36,34.96],[29.2,36.07],[29.51,36.5],[29.87,36.74],[30.0,37.5],[30.34,37.67],
+    [30.51,38.0],[31.51,37.0],[32.01,39.0],[32.16,39.2],[31.89,40.4],[31.19,41.89],
+    [29.18,44.71],[29.1,46.57],[29.0,47.46],[28.53,47.71],[28.55,48.42],[27.69,48.81],
+    [27.46,49.3],[27.11,49.47],[26.69,50.15],[26.28,50.21],[25.94,50.11],[25.61,50.24],
+    [25.33,50.53],[25.0,50.66],[24.75,50.81],[24.56,51.11],[24.63,51.39],[24.25,51.58],
+    [24.01,51.62],[23.0,52.0],[22.5,55.01],[22.71,55.21],[22.0,55.67],[20.0,55.0],
+    [19.0,52.0],[18.62,49.12],[18.17,48.18],[17.12,47.47],[16.95,47.0],[17.28,46.75],
+    [17.23,46.37],[17.33,45.4],[17.43,45.22],[17.41,44.06],[17.32,43.79],[17.58,43.38],
+    [17.09,43.12],[16.67,43.22],[16.35,42.78],[16.77,42.65],[17.08,42.35],[17.47,42.27],
+    [17.83,41.75],[18.67,41.22],[19.49,40.94],[20.17,40.25],[20.34,39.8],[21.29,39.14],
+    [21.99,39.02],[22.58,39.07],[23.69,38.49],[24.08,38.02],[24.29,37.48],[24.86,37.15],
+    [25.08,37.21],[25.6,36.93],[25.83,36.64],[26.57,36.25],[27.38,35.64],[28.06,35.13],
+    [28.06,34.63],[28.61,34.79],[28.96,34.83],[29.36,34.96],
+  ],
+);
+
+// Pakistan
+const _cGeo85 = _Continent(
+  bbox: _BBox(23.69, 37.13, 60.87, 77.84),
+  polygon: [
+    [35.49,77.84],[34.65,76.87],[34.5,75.76],[34.75,74.24],[34.32,73.75],[33.44,74.1],
+    [32.76,74.45],[32.27,75.26],[31.69,74.41],[30.98,74.42],[29.98,73.45],[28.96,72.82],
+    [27.91,71.78],[27.99,70.62],[26.94,69.51],[26.49,70.17],[25.72,70.28],[25.22,70.84],
+    [24.36,71.04],[24.36,68.84],[23.69,68.18],[23.94,67.44],[24.66,67.15],[25.43,66.37],
+    [25.24,64.53],[25.22,62.91],[25.08,61.5],[26.24,61.87],[26.76,63.32],[27.22,63.23],
+    [27.38,62.76],[28.26,62.73],[28.7,61.77],[29.3,61.37],[29.83,60.87],[29.32,62.55],
+    [29.47,63.55],[29.34,64.15],[29.56,64.35],[29.47,65.05],[29.89,66.35],[30.74,66.38],
+    [31.3,66.94],[31.3,67.68],[31.58,67.79],[31.71,68.56],[31.62,68.93],[31.9,69.32],
+    [32.5,69.26],[33.11,69.69],[33.36,70.32],[34.02,69.93],[33.99,70.88],[34.35,71.16],
+    [34.73,71.12],[35.15,71.61],[35.65,71.5],[36.07,71.26],[36.51,71.85],[36.72,72.92],
+    [36.84,74.07],[37.02,74.58],[37.13,75.16],[36.67,75.9],[35.9,76.19],[35.49,77.84],
+  ],
+);
+
+// Thailand
+const _cGeo86 = _Continent(
+  bbox: _BBox(5.69, 20.42, 97.38, 105.59),
+  polygon: [
+    [14.27,105.22],[14.42,104.28],[14.23,102.99],[13.39,102.35],[12.19,102.58],[12.65,101.69],
+    [12.63,100.83],[13.41,100.98],[13.41,100.1],[12.31,100.02],[10.85,99.48],[9.96,99.15],
+    [9.24,99.22],[9.21,99.87],[8.3,100.28],[7.43,100.46],[6.86,101.02],[6.74,101.62],
+    [6.22,102.14],[5.81,101.81],[5.69,101.15],[6.2,101.08],[6.64,100.26],[6.46,100.09],
+    [6.85,99.69],[7.34,99.52],[7.91,98.99],[8.38,98.5],[7.79,98.34],[8.35,98.15],
+    [8.97,98.26],[9.93,98.55],[10.96,99.04],[11.89,99.59],[12.8,99.2],[13.27,99.21],
+    [13.83,99.1],[14.62,98.43],[15.12,98.19],[15.31,98.54],[16.18,98.9],[16.84,98.49],
+    [17.57,97.86],[18.45,97.38],[18.63,97.8],[19.71,98.25],[19.75,98.96],[20.19,99.54],
+    [20.42,100.12],[20.11,100.55],[19.51,100.61],[19.46,101.28],[18.41,101.04],[17.51,101.06],
+    [18.11,102.11],[17.93,102.41],[17.96,103.0],[18.31,103.2],[18.24,103.96],[17.43,104.72],
+    [16.44,104.78],[15.57,105.59],[14.72,105.54],[14.27,105.22],
+  ],
+);
+
+// Kuwait
+const _cGeo87 = _Continent(
+  bbox: _BBox(28.53, 30.06, 46.57, 48.42),
+  polygon: [
+    [29.98,47.97],[29.53,48.18],[29.31,48.09],[28.55,48.42],[28.53,47.71],[29.0,47.46],
+    [29.1,46.57],[30.06,47.3],[29.98,47.97],
+  ],
+);
+
+// Timor-Leste
+const _cGeo88 = _Continent(
+  bbox: _BBox(-9.39, -8.27, 124.97, 127.34),
+  polygon: [
+    [-8.89,124.97],[-8.66,125.09],[-8.43,125.95],[-8.4,126.64],[-8.27,126.96],[-8.4,127.34],
+    [-8.67,126.97],[-9.11,125.93],[-9.39,125.09],[-9.09,125.07],[-8.89,124.97],
+  ],
+);
+
+// Brunei
+const _cGeo89 = _Continent(
+  bbox: _BBox(4.01, 5.45, 114.2, 115.45),
+  polygon: [
+    [5.45,115.45],[4.96,115.41],[4.32,115.35],[4.35,114.87],[4.01,114.66],[4.53,114.2],
+    [4.9,114.6],[5.45,115.45],
+  ],
+);
+
+// Myanmar
+const _cGeo90 = _Continent(
+  bbox: _BBox(9.93, 28.34, 92.3, 101.18),
+  polygon: [
+    [20.42,100.12],[20.19,99.54],[19.75,98.96],[19.71,98.25],[18.63,97.8],[18.45,97.38],
+    [17.57,97.86],[16.84,98.49],[16.18,98.9],[15.31,98.54],[15.12,98.19],[14.62,98.43],
+    [13.83,99.1],[13.27,99.21],[12.8,99.2],[11.89,99.59],[10.96,99.04],[9.93,98.55],
+    [10.68,98.46],[11.44,98.76],[12.03,98.43],[13.12,98.51],[13.64,98.1],[14.84,97.78],
+    [16.1,97.6],[16.93,97.16],[16.43,96.51],[15.71,95.37],[15.8,94.81],[16.04,94.19],
+    [17.28,94.53],[18.21,94.32],[19.37,93.54],[19.73,93.66],[19.86,93.08],[20.67,92.37],
+    [21.48,92.3],[21.32,92.65],[22.04,92.67],[22.28,93.17],[22.7,93.06],[23.04,93.29],
+    [24.08,93.33],[23.85,94.11],[24.68,94.55],[25.16,94.6],[26.0,95.16],[26.57,95.12],
+    [27.26,96.42],[27.08,97.13],[27.7,97.05],[27.88,97.4],[28.26,97.33],[28.34,97.91],
+    [27.75,98.25],[27.51,98.68],[26.74,98.71],[25.92,98.67],[25.08,97.72],[23.9,97.6],
+    [24.06,98.66],[23.14,98.9],[22.95,99.53],[22.12,99.24],[21.74,99.98],[21.56,100.42],
+    [21.85,101.15],[21.44,101.18],[20.79,100.33],[20.42,100.12],
+  ],
+);
+
+// Bangladesh
+const _cGeo91 = _Continent(
+  bbox: _BBox(20.67, 26.45, 88.08, 92.67),
+  polygon: [
+    [22.04,92.67],[21.32,92.65],[21.48,92.3],[20.67,92.37],[21.19,92.08],[21.7,92.03],
+    [22.18,91.83],[22.77,91.42],[22.81,90.5],[22.39,90.59],[21.84,90.27],[22.04,89.85],
+    [21.86,89.7],[21.97,89.42],[22.06,89.03],[22.88,88.88],[23.63,88.53],[24.23,88.7],
+    [24.5,88.08],[24.87,88.31],[25.24,88.93],[25.77,88.21],[26.45,88.56],[26.01,89.36],
+    [25.97,89.83],[25.27,89.92],[25.13,90.87],[25.15,91.8],[24.98,92.38],[24.13,91.92],
+    [24.07,91.47],[23.5,91.16],[22.99,91.71],[23.62,91.87],[23.63,92.15],[22.04,92.67],
+  ],
+);
+
+// Afghanistan
+const _cGeo92 = _Continent(
+  bbox: _BBox(29.32, 38.49, 60.53, 75.16),
+  polygon: [
+    [37.36,66.52],[37.36,67.08],[37.14,67.83],[37.02,68.14],[37.34,68.86],[37.15,69.2],
+    [37.61,69.52],[37.59,70.12],[37.74,70.27],[38.14,70.38],[38.49,70.81],[38.26,71.35],
+    [37.95,71.24],[37.91,71.54],[37.07,71.45],[36.74,71.84],[36.95,72.19],[37.05,72.64],
+    [37.5,73.26],[37.42,73.95],[37.42,74.98],[37.13,75.16],[37.02,74.58],[36.84,74.07],
+    [36.72,72.92],[36.51,71.85],[36.07,71.26],[35.65,71.5],[35.15,71.61],[34.73,71.12],
+    [34.35,71.16],[33.99,70.88],[34.02,69.93],[33.36,70.32],[33.11,69.69],[32.5,69.26],
+    [31.9,69.32],[31.62,68.93],[31.71,68.56],[31.58,67.79],[31.3,67.68],[31.3,66.94],
+    [30.74,66.38],[29.89,66.35],[29.47,65.05],[29.56,64.35],[29.34,64.15],[29.47,63.55],
+    [29.32,62.55],[29.83,60.87],[30.74,61.78],[31.38,61.7],[31.55,60.94],[32.18,60.86],
+    [32.98,60.54],[33.53,60.96],[33.68,60.53],[34.4,60.8],[35.65,61.21],[35.27,62.23],
+    [35.4,62.98],[35.86,63.19],[36.01,63.98],[36.31,64.55],[37.11,64.75],[37.31,65.59],
+    [37.66,65.75],[37.39,66.22],[37.36,66.52],
+  ],
+);
+
+// Turkmenistan
+const _cGeo93 = _Continent(
+  bbox: _BBox(35.27, 42.75, 52.5, 66.55),
+  polygon: [
+    [41.78,52.5],[42.12,52.94],[42.32,54.08],[42.04,54.76],[41.26,55.46],[41.31,55.97],
+    [41.32,57.1],[41.83,56.93],[42.17,57.79],[42.75,58.63],[42.22,59.98],[41.43,60.08],
+    [41.22,60.47],[41.27,61.55],[41.08,61.88],[40.05,62.37],[39.36,63.52],[38.89,64.17],
+    [38.4,65.22],[37.97,66.55],[37.36,66.52],[37.39,66.22],[37.66,65.75],[37.31,65.59],
+    [37.11,64.75],[36.31,64.55],[36.01,63.98],[35.86,63.19],[35.4,62.98],[35.27,62.23],
+    [35.65,61.21],[36.49,61.12],[36.53,60.38],[37.41,59.23],[37.52,58.44],[38.03,57.33],
+    [38.12,56.62],[37.94,56.18],[37.96,55.51],[37.39,54.8],[37.2,53.92],[37.91,53.74],
+    [38.95,53.88],[39.29,53.1],[39.98,53.36],[40.03,52.69],[40.88,52.92],[40.63,53.86],
+    [40.95,54.74],[41.55,54.01],[42.12,53.72],[41.87,52.92],[41.14,52.81],[41.78,52.5],
+  ],
+);
+
+// Jordan
+const _cGeo94 = _Continent(
+  bbox: _BBox(29.2, 33.38, 34.92, 39.2),
+  polygon: [
+    [32.39,35.55],[32.71,35.72],[32.31,36.83],[33.38,38.79],[32.16,39.2],[32.01,39.0],
+    [31.51,37.0],[30.51,38.0],[30.34,37.67],[30.0,37.5],[29.87,36.74],[29.51,36.5],
+    [29.2,36.07],[29.36,34.96],[29.5,34.92],[31.1,35.42],[31.49,35.4],[31.78,35.55],
+    [32.39,35.55],
+  ],
+);
+
+// Nepal
+const _cGeo95 = _Continent(
+  bbox: _BBox(26.4, 30.42, 80.09, 88.17),
+  polygon: [
+    [27.88,88.12],[27.45,88.04],[26.81,88.17],[26.41,88.06],[26.4,87.23],[26.63,86.02],
+    [26.73,85.25],[27.23,84.68],[27.36,83.3],[27.93,82.0],[28.42,81.06],[28.79,80.09],
+    [29.73,80.48],[30.18,81.11],[30.42,81.53],[30.12,82.33],[29.46,83.34],[29.32,83.9],
+    [28.84,84.23],[28.64,85.01],[28.2,85.82],[27.97,86.95],[27.88,88.12],
+  ],
+);
+
+// Yemen
+const _cGeo96 = _Continent(
+  bbox: _BBox(12.59, 19.0, 42.6, 53.11),
+  polygon: [
+    [19.0,52.0],[17.35,52.78],[16.65,53.11],[16.38,52.39],[15.94,52.19],[15.6,52.17],
+    [15.18,51.17],[14.71,49.57],[14.0,48.68],[13.95,48.24],[14.01,47.94],[13.59,47.35],
+    [13.4,46.72],[13.35,45.88],[13.29,45.63],[13.03,45.41],[12.95,45.14],[12.7,44.99],
+    [12.72,44.49],[12.59,44.18],[12.64,43.48],[13.22,43.22],[13.77,43.25],[14.06,43.09],
+    [14.8,42.89],[15.21,42.6],[15.26,42.81],[15.72,42.7],[15.91,42.82],[16.35,42.78],
+    [16.67,43.22],[17.09,43.12],[17.58,43.38],[17.32,43.79],[17.41,44.06],[17.43,45.22],
+    [17.33,45.4],[17.23,46.37],[17.28,46.75],[16.95,47.0],[17.12,47.47],[18.17,48.18],
+    [18.62,49.12],[19.0,52.0],
+  ],
+);
+
+// Philippines
+const _cGeo97 = _Continent(
+  bbox: _BBox(12.21, 13.47, 120.32, 121.53),
+  polygon: [
+    [12.7,120.83],[13.47,120.32],[13.43,121.18],[13.07,121.53],[12.21,121.26],[12.7,120.83],
+  ],
+);
+
+// Philippines
+const _cGeo98 = _Continent(
+  bbox: _BBox(9.02, 11.23, 122.38, 124.08),
+  polygon: [
+    [9.98,122.59],[10.26,122.84],[10.88,122.95],[10.94,123.5],[10.27,123.34],[11.23,124.08],
+    [10.28,123.98],[9.95,123.62],[9.32,123.31],[9.02,123.0],[9.71,122.38],[9.98,122.59],
+  ],
+);
+
+// Philippines
+const _cGeo99 = _Continent(
+  bbox: _BBox(5.58, 9.76, 121.92, 126.54),
+  polygon: [
+    [8.41,126.38],[7.75,126.48],[7.19,126.54],[6.27,126.2],[7.29,125.83],[6.79,125.36],
+    [6.05,125.68],[5.58,125.4],[6.16,124.22],[6.89,123.94],[7.36,124.24],[7.83,123.61],
+    [7.42,123.3],[7.46,122.83],[6.9,122.09],[7.19,121.92],[8.03,122.31],[8.32,122.94],
+    [8.69,123.49],[8.24,123.84],[8.51,124.6],[8.96,124.76],[8.99,125.47],[9.76,125.41],
+    [9.29,126.22],[8.78,126.31],[8.41,126.38],
+  ],
+);
+
+// Philippines
+const _cGeo100 = _Continent(
+  bbox: _BBox(8.37, 11.37, 117.17, 119.69),
+  polygon: [
+    [9.32,118.5],[8.37,117.17],[9.07,117.66],[9.68,118.39],[10.38,118.99],[11.37,119.51],
+    [10.55,119.69],[10.0,119.03],[9.32,118.5],
+  ],
+);
+
+// Philippines
+const _cGeo101 = _Continent(
+  bbox: _BBox(12.54, 18.51, 119.88, 124.18),
+  polygon: [
+    [18.22,122.34],[17.81,122.17],[17.09,122.52],[16.26,122.25],[15.93,121.66],[15.12,121.51],
+    [14.33,121.73],[14.22,122.26],[14.34,122.7],[13.78,123.95],[13.24,123.86],[13.0,124.18],
+    [12.54,124.08],[13.03,123.3],[13.55,122.93],[13.19,122.67],[13.78,122.03],[13.64,121.13],
+    [13.86,120.63],[14.27,120.68],[14.53,120.99],[14.76,120.69],[14.4,120.56],[14.97,120.07],
+    [15.41,119.92],[16.36,119.88],[16.03,120.29],[17.6,120.39],[18.51,120.72],[18.5,121.32],
+    [18.22,121.94],[18.48,122.25],[18.22,122.34],
+  ],
+);
+
+// Philippines
+const _cGeo102 = _Continent(
+  bbox: _BBox(10.44, 11.89, 121.88, 123.12),
+  polygon: [
+    [11.42,122.04],[11.89,121.88],[11.58,122.48],[11.58,123.12],[11.17,123.1],[10.74,122.64],
+    [10.44,122.0],[10.91,121.97],[11.42,122.04],
+  ],
+);
+
+// Philippines
+const _cGeo103 = _Continent(
+  bbox: _BBox(10.13, 12.56, 124.27, 125.78),
+  polygon: [
+    [12.16,125.5],[11.05,125.78],[11.31,125.01],[10.98,125.03],[10.36,125.28],[10.13,124.8],
+    [10.84,124.76],[10.89,124.46],[11.5,124.3],[11.42,124.89],[11.79,124.88],[12.56,124.27],
+    [12.54,125.23],[12.16,125.5],
+  ],
+);
+
+// Sri Lanka
+const _cGeo104 = _Continent(
+  bbox: _BBox(5.97, 9.82, 79.7, 81.79),
+  polygon: [
+    [7.52,81.79],[6.48,81.64],[6.2,81.22],[5.97,80.35],[6.76,79.87],[8.2,79.7],
+    [9.82,80.15],[9.27,80.84],[8.56,81.3],[7.52,81.79],
+  ],
+);
+
+// Taiwan
+const _cGeo105 = _Continent(
+  bbox: _BBox(21.97, 25.3, 120.11, 121.95),
+  polygon: [
+    [24.39,121.78],[22.79,121.18],[21.97,120.75],[22.81,120.22],[23.56,120.11],[24.54,120.69],
+    [25.3,121.5],[25.0,121.95],[24.39,121.78],
+  ],
+);
+
+// Japan
+const _cGeo106 = _Continent(
+  bbox: _BBox(31.03, 41.38, 129.41, 141.91),
+  polygon: [
+    [39.18,141.88],[38.17,140.96],[37.14,140.98],[36.34,140.6],[35.84,140.77],[35.14,140.25],
+    [34.67,138.98],[34.61,137.22],[33.46,135.79],[33.85,135.12],[34.6,135.08],[34.38,133.34],
+    [33.9,132.16],[33.89,130.99],[33.15,132.0],[31.45,131.33],[31.03,130.69],[31.42,130.2],
+    [32.32,130.45],[32.61,129.81],[33.3,129.41],[33.6,130.35],[34.23,130.88],[34.75,131.88],
+    [35.43,132.62],[35.73,134.61],[35.53,135.68],[37.3,136.72],[36.83,137.39],[37.83,138.86],
+    [38.22,139.43],[39.44,140.05],[40.56,139.88],[41.2,140.31],[41.38,141.37],[39.99,141.91],
+    [39.18,141.88],
+  ],
+);
+
+// Japan
+const _cGeo107 = _Continent(
+  bbox: _BBox(41.57, 45.55, 139.82, 145.54),
+  polygon: [
+    [43.96,144.61],[44.38,145.32],[43.26,145.54],[42.99,144.06],[42.0,143.18],[42.68,141.61],
+    [41.58,141.07],[41.57,139.96],[42.56,139.82],[43.33,140.31],[43.39,141.38],[44.77,141.67],
+    [45.55,141.97],[44.51,143.14],[44.17,143.91],[43.96,144.61],
+  ],
+);
+
+// Japan
+const _cGeo108 = _Continent(
+  bbox: _BBox(32.7, 34.36, 132.36, 134.77),
+  polygon: [
+    [33.46,132.37],[34.06,132.92],[33.94,133.49],[34.36,133.9],[34.15,134.64],[33.81,134.77],
+    [33.2,134.2],[33.52,133.79],[33.29,133.28],[32.7,133.01],[32.99,132.36],[33.46,132.37],
+  ],
+);
+
+// Chile
+const _cGeo109 = _Continent(
+  bbox: _BBox(-55.61, -52.52, -74.66, -66.96),
+  polygon: [
+    [-52.64,-68.63],[-54.87,-68.63],[-54.87,-67.56],[-54.9,-66.96],[-55.3,-67.29],[-55.61,-68.15],
+    [-55.58,-68.64],[-55.5,-69.23],[-55.2,-69.96],[-55.05,-71.01],[-54.5,-72.26],[-53.96,-73.29],
+    [-52.84,-74.66],[-53.05,-73.84],[-53.72,-72.43],[-54.07,-71.11],[-53.62,-70.59],[-52.93,-70.27],
+    [-52.52,-69.35],[-52.64,-68.63],
+  ],
+);
+
+// Chile
+const _cGeo110 = _Continent(
+  bbox: _BBox(-53.86, -17.58, -75.64, -66.99),
+  polygon: [
+    [-17.58,-69.59],[-18.26,-69.1],[-18.98,-68.97],[-19.41,-68.44],[-20.37,-68.76],[-21.49,-68.22],
+    [-22.74,-67.11],[-22.99,-66.99],[-24.03,-67.33],[-24.52,-68.42],[-26.19,-68.39],[-26.51,-68.59],
+    [-27.52,-69.0],[-28.46,-69.66],[-29.37,-70.01],[-30.34,-69.92],[-31.37,-70.54],[-33.09,-70.07],
+    [-34.19,-69.82],[-35.17,-70.39],[-36.01,-70.36],[-36.66,-71.12],[-37.58,-71.12],[-38.92,-71.41],
+    [-39.81,-71.68],[-40.83,-71.92],[-42.05,-71.75],[-42.25,-72.15],[-43.41,-71.92],[-44.21,-71.79],
+    [-44.41,-71.33],[-44.78,-71.22],[-44.97,-71.66],[-45.56,-71.55],[-46.88,-71.92],[-48.24,-72.33],
+    [-48.88,-72.65],[-49.32,-73.42],[-50.38,-73.33],[-50.74,-72.98],[-51.43,-72.33],[-52.01,-71.91],
+    [-52.14,-69.5],[-52.3,-68.57],[-52.29,-69.46],[-52.54,-69.94],[-53.83,-71.01],[-53.86,-71.43],
+    [-53.53,-72.56],[-52.84,-73.7],[-52.84,-73.7],[-52.26,-74.95],[-51.04,-74.98],[-50.38,-75.48],
+    [-48.67,-75.61],[-47.71,-75.18],[-46.94,-74.13],[-46.65,-75.64],[-44.1,-74.35],[-44.45,-73.24],
+    [-42.38,-72.72],[-42.12,-73.39],[-43.37,-73.7],[-41.79,-74.02],[-39.94,-73.68],[-39.26,-73.22],
+    [-38.28,-73.51],[-37.16,-73.59],[-37.12,-73.17],[-33.91,-71.86],[-32.42,-71.44],[-30.92,-71.67],
+    [-30.1,-71.37],[-28.86,-71.49],[-27.64,-70.91],[-23.63,-70.4],[-21.39,-70.09],[-19.76,-70.16],
+    [-18.35,-70.37],[-18.09,-69.86],[-17.58,-69.59],
+  ],
+);
+
+// Bolivia
+const _cGeo111 = _Continent(
+  bbox: _BBox(-22.87, -9.76, -69.59, -57.5),
+  polygon: [
+    [-10.95,-69.53],[-11.04,-68.79],[-11.01,-68.27],[-10.71,-68.05],[-10.31,-67.17],[-9.93,-66.65],
+    [-9.76,-65.34],[-10.51,-65.44],[-10.9,-65.32],[-11.57,-65.4],[-12.46,-64.32],[-12.63,-63.2],
+    [-13.0,-62.8],[-13.2,-62.13],[-13.49,-61.71],[-13.48,-61.08],[-13.78,-60.5],[-14.35,-60.46],
+    [-14.65,-60.26],[-15.08,-60.25],[-15.09,-60.54],[-16.26,-60.16],[-16.3,-58.24],[-16.88,-58.39],
+    [-17.27,-58.28],[-17.55,-57.73],[-18.17,-57.5],[-18.96,-57.68],[-19.4,-57.95],[-19.97,-57.85],
+    [-20.18,-58.17],[-19.87,-58.18],[-19.36,-59.12],[-19.34,-60.04],[-19.63,-61.79],[-20.51,-62.27],
+    [-21.05,-62.29],[-22.25,-62.69],[-22.03,-62.85],[-21.99,-63.99],[-22.8,-64.38],[-22.08,-64.96],
+    [-21.83,-66.27],[-22.74,-67.11],[-22.87,-67.83],[-21.49,-68.22],[-20.37,-68.76],[-19.41,-68.44],
+    [-18.98,-68.97],[-18.26,-69.1],[-17.58,-69.59],[-16.5,-68.96],[-15.66,-69.39],[-15.32,-69.16],
+    [-14.95,-69.34],[-14.45,-68.95],[-13.6,-68.93],[-12.9,-68.88],[-12.56,-68.67],[-10.95,-69.53],
+  ],
+);
+
+// Peru
+const _cGeo112 = _Continent(
+  bbox: _BBox(-18.35, -0.06, -81.41, -68.67),
+  polygon: [
+    [-4.3,-69.89],[-4.25,-70.79],[-4.4,-70.93],[-4.59,-71.75],[-5.27,-72.89],[-5.74,-72.96],
+    [-6.09,-73.22],[-6.63,-73.12],[-6.92,-73.72],[-7.34,-73.72],[-7.52,-73.99],[-8.42,-73.57],
+    [-9.03,-73.02],[-9.46,-73.23],[-9.52,-72.56],[-10.05,-72.18],[-10.08,-71.3],[-9.49,-70.48],
+    [-11.01,-70.55],[-11.12,-70.09],[-10.95,-69.53],[-12.56,-68.67],[-12.9,-68.88],[-13.6,-68.93],
+    [-14.45,-68.95],[-14.95,-69.34],[-15.32,-69.16],[-15.66,-69.39],[-16.5,-68.96],[-17.58,-69.59],
+    [-18.09,-69.86],[-18.35,-70.37],[-17.77,-71.38],[-17.36,-71.46],[-16.36,-73.44],[-15.27,-75.24],
+    [-14.65,-76.01],[-13.82,-76.42],[-13.54,-76.26],[-12.22,-77.11],[-10.38,-78.09],[-8.39,-79.04],
+    [-7.93,-79.45],[-7.19,-79.76],[-6.54,-80.54],[-6.14,-81.25],[-5.69,-80.93],[-4.74,-81.41],
+    [-4.04,-81.1],[-3.4,-80.3],[-3.82,-80.18],[-4.06,-80.47],[-4.43,-80.44],[-4.35,-80.03],
+    [-4.45,-79.62],[-4.96,-79.21],[-4.55,-78.64],[-3.87,-78.45],[-3.0,-77.84],[-2.61,-76.64],
+    [-1.56,-75.54],[-0.91,-75.23],[-0.15,-75.37],[-0.06,-75.11],[-0.53,-74.44],[-1.0,-74.12],
+    [-1.26,-73.66],[-2.31,-73.07],[-2.43,-72.33],[-2.17,-71.77],[-2.34,-71.41],[-2.26,-70.81],
+    [-2.73,-70.05],[-3.74,-70.69],[-3.77,-70.39],[-4.3,-69.89],
+  ],
+);
+
+// Argentina
+const _cGeo113 = _Continent(
+  bbox: _BBox(-55.25, -52.64, -68.63, -65.05),
+  polygon: [
+    [-52.64,-68.63],[-53.1,-68.25],[-53.85,-67.75],[-54.45,-66.45],[-54.7,-65.05],[-55.2,-65.5],
+    [-55.25,-66.45],[-54.9,-66.96],[-54.87,-67.56],[-54.87,-68.63],[-52.64,-68.63],
+  ],
+);
+
+// Argentina
+const _cGeo114 = _Continent(
+  bbox: _BBox(-52.35, -21.83, -73.42, -53.63),
+  polygon: [
+    [-30.22,-57.63],[-31.02,-57.87],[-32.04,-58.14],[-33.26,-58.35],[-33.91,-58.43],[-34.43,-58.5],
+    [-35.98,-57.36],[-36.41,-56.74],[-38.18,-57.75],[-38.72,-59.23],[-38.93,-61.24],[-39.42,-62.13],
+    [-40.17,-62.33],[-40.68,-62.15],[-41.17,-63.77],[-40.8,-64.73],[-42.06,-64.98],[-42.36,-64.3],
+    [-42.04,-63.76],[-42.87,-64.38],[-43.5,-65.18],[-44.5,-65.33],[-45.04,-66.51],[-45.55,-67.29],
+    [-47.03,-66.6],[-47.24,-65.64],[-48.13,-65.99],[-49.87,-67.82],[-50.26,-68.73],[-50.73,-69.14],
+    [-52.35,-68.15],[-52.3,-68.57],[-52.01,-71.91],[-51.43,-72.33],[-50.68,-72.31],[-50.38,-73.33],
+    [-49.32,-73.42],[-48.88,-72.65],[-47.74,-72.45],[-46.88,-71.92],[-44.97,-71.66],[-44.78,-71.22],
+    [-44.41,-71.33],[-43.79,-71.46],[-43.41,-71.92],[-42.25,-72.15],[-40.83,-71.92],[-39.81,-71.68],
+    [-38.55,-70.81],[-37.58,-71.12],[-36.66,-71.12],[-35.17,-70.39],[-34.19,-69.82],[-33.27,-69.81],
+    [-31.37,-70.54],[-30.34,-69.92],[-28.46,-69.66],[-27.52,-69.0],[-26.9,-68.3],[-26.19,-68.39],
+    [-24.52,-68.42],[-24.03,-67.33],[-22.74,-67.11],[-21.83,-66.27],[-22.8,-64.38],[-21.99,-63.99],
+    [-22.03,-62.85],[-23.88,-60.85],[-24.03,-60.03],[-24.77,-58.81],[-25.6,-57.63],[-27.12,-58.62],
+    [-27.55,-56.49],[-27.39,-55.7],[-26.62,-54.79],[-25.55,-54.13],[-26.12,-53.63],[-26.92,-53.65],
+    [-27.88,-55.16],[-28.85,-56.29],[-30.22,-57.63],
+  ],
+);
+
+// Suriname
+const _cGeo115 = _Continent(
+  bbox: _BBox(1.82, 6.03, -58.04, -53.96),
+  polygon: [
+    [2.31,-54.52],[2.52,-55.1],[2.42,-55.57],[2.51,-55.97],[2.22,-56.07],[2.02,-55.91],
+    [1.82,-56.0],[1.9,-56.54],[2.77,-57.15],[3.33,-57.28],[3.33,-57.6],[4.06,-58.04],
+    [4.58,-57.86],[4.81,-57.91],[5.07,-57.31],[5.97,-57.15],[5.77,-55.95],[5.95,-55.84],
+    [6.03,-55.03],[5.76,-53.96],[4.9,-54.48],[4.21,-54.4],[3.62,-54.01],[3.19,-54.18],
+    [2.73,-54.27],[2.31,-54.52],
+  ],
+);
+
+// Guyana
+const _cGeo116 = _Continent(
+  bbox: _BBox(1.27, 8.37, -61.41, -56.54),
+  polygon: [
+    [1.9,-56.54],[1.86,-56.78],[1.95,-57.34],[1.68,-57.66],[1.51,-58.11],[1.46,-58.43],
+    [1.27,-58.54],[1.32,-59.03],[1.79,-59.65],[2.25,-59.72],[2.76,-59.97],[3.61,-59.82],
+    [3.96,-59.54],[4.42,-59.77],[4.57,-60.11],[5.01,-59.98],[5.24,-60.21],[5.2,-60.73],
+    [5.96,-61.41],[6.23,-61.14],[6.7,-61.16],[6.86,-60.54],[7.04,-60.3],[7.41,-60.64],
+    [7.78,-60.55],[8.37,-59.76],[8.0,-59.1],[7.35,-58.48],[6.83,-58.45],[6.81,-58.08],
+    [6.32,-57.54],[5.97,-57.15],[5.07,-57.31],[4.81,-57.91],[4.58,-57.86],[4.06,-58.04],
+    [3.33,-57.6],[3.33,-57.28],[2.77,-57.15],[1.9,-56.54],
+  ],
+);
+
+// Brazil
+const _cGeo117 = _Continent(
+  bbox: _BBox(-33.77, 5.24, -73.99, -34.73),
+  polygon: [
+    [-33.77,-53.37],[-32.73,-53.21],[-30.85,-55.6],[-30.11,-56.98],[-27.88,-55.16],[-26.92,-53.65],
+    [-25.74,-54.63],[-24.57,-54.29],[-24.0,-55.03],[-23.57,-55.52],[-22.09,-56.47],[-22.09,-57.94],
+    [-19.97,-57.85],[-18.96,-57.68],[-17.27,-58.28],[-16.26,-60.16],[-15.08,-60.25],[-13.78,-60.5],
+    [-13.49,-61.71],[-12.63,-63.2],[-11.57,-65.4],[-9.76,-65.34],[-10.31,-67.17],[-11.04,-68.79],
+    [-11.12,-70.09],[-10.08,-71.3],[-9.52,-72.56],[-8.42,-73.57],[-6.92,-73.72],[-6.09,-73.22],
+    [-4.59,-71.75],[-4.25,-70.79],[-1.12,-69.42],[-0.19,-70.02],[0.6,-69.25],[1.09,-69.8],
+    [2.04,-67.54],[1.13,-67.07],[0.79,-65.55],[1.33,-64.61],[2.2,-63.37],[3.13,-64.41],
+    [4.06,-64.82],[3.77,-63.09],[4.16,-62.09],[5.2,-60.73],[5.01,-59.98],[3.96,-59.54],
+    [2.76,-59.97],[1.32,-59.03],[1.46,-58.43],[1.95,-57.34],[1.9,-56.54],[2.22,-56.07],
+    [2.52,-55.1],[2.11,-54.09],[2.05,-53.42],[2.5,-52.56],[4.2,-51.32],[1.9,-50.51],
+    [0.22,-50.7],[-0.24,-48.62],[-0.94,-46.57],[-2.14,-44.42],[-2.91,-41.47],[-3.7,-38.5],
+    [-5.15,-35.6],[-7.34,-34.73],[-9.65,-35.64],[-13.04,-38.42],[-13.79,-38.95],[-17.87,-39.27],
+    [-19.6,-39.76],[-22.37,-41.75],[-22.97,-43.07],[-24.09,-46.47],[-25.88,-48.5],[-28.19,-48.66],
+    [-29.22,-49.59],[-32.25,-52.26],[-33.77,-53.37],
+  ],
+);
+
+// Uruguay
+const _cGeo118 = _Continent(
+  bbox: _BBox(-34.95, -30.11, -58.43, -53.21),
+  polygon: [
+    [-30.22,-57.63],[-30.11,-56.98],[-30.88,-55.97],[-30.85,-55.6],[-31.49,-54.57],[-32.05,-53.79],
+    [-32.73,-53.21],[-33.2,-53.65],[-33.77,-53.37],[-34.4,-53.81],[-34.95,-54.94],[-34.75,-55.67],
+    [-34.86,-56.22],[-34.43,-57.14],[-34.46,-57.82],[-33.91,-58.43],[-33.26,-58.35],[-33.04,-58.13],
+    [-32.04,-58.14],[-31.02,-57.87],[-30.22,-57.63],
+  ],
+);
+
+// Ecuador
+const _cGeo119 = _Continent(
+  bbox: _BBox(-4.96, 1.38, -80.97, -75.23),
+  polygon: [
+    [-0.15,-75.37],[-0.91,-75.23],[-1.56,-75.54],[-2.61,-76.64],[-3.0,-77.84],[-3.87,-78.45],
+    [-4.55,-78.64],[-4.96,-79.21],[-4.45,-79.62],[-4.35,-80.03],[-4.43,-80.44],[-4.06,-80.47],
+    [-3.82,-80.18],[-3.4,-80.3],[-2.66,-79.77],[-2.22,-79.99],[-2.69,-80.37],[-2.25,-80.97],
+    [-1.97,-80.76],[-1.06,-80.93],[-0.91,-80.58],[-0.28,-80.4],[0.36,-80.02],[0.77,-80.09],
+    [0.98,-79.54],[1.38,-78.86],[0.81,-77.86],[0.83,-77.67],[0.4,-77.42],[0.26,-76.58],
+    [0.42,-76.29],[0.08,-75.8],[-0.15,-75.37],
+  ],
+);
+
+// Colombia
+const _cGeo120 = _Continent(
+  bbox: _BBox(-4.3, 12.44, -78.99, -66.88),
+  polygon: [
+    [1.25,-66.88],[1.13,-67.07],[1.72,-67.26],[2.04,-67.54],[1.71,-69.82],[1.09,-69.8],
+    [0.99,-69.22],[0.6,-69.25],[0.54,-70.02],[-0.19,-70.02],[-0.55,-69.58],[-1.12,-69.42],
+    [-4.3,-69.89],[-3.77,-70.39],[-3.74,-70.69],[-2.73,-70.05],[-2.34,-71.41],[-2.17,-71.77],
+    [-2.43,-72.33],[-2.31,-73.07],[-1.0,-74.12],[-0.53,-74.44],[-0.06,-75.11],[-0.15,-75.37],
+    [0.42,-76.29],[0.26,-76.58],[0.4,-77.42],[0.83,-77.67],[1.38,-78.86],[1.69,-78.99],
+    [1.77,-78.62],[2.27,-78.66],[2.7,-77.93],[3.33,-77.51],[3.85,-77.13],[4.09,-77.5],
+    [5.58,-77.53],[5.85,-77.32],[6.69,-77.48],[7.22,-77.88],[7.64,-77.43],[7.94,-77.24],
+    [8.52,-77.47],[8.67,-77.35],[9.34,-76.09],[9.44,-75.67],[9.77,-75.66],[10.62,-75.48],
+    [11.1,-74.28],[11.31,-74.2],[11.23,-73.41],[11.73,-72.63],[12.44,-71.75],[12.38,-71.4],
+    [12.11,-71.14],[11.78,-71.33],[11.11,-72.23],[10.82,-72.61],[10.45,-72.91],[9.74,-73.03],
+    [9.09,-72.79],[8.63,-72.66],[8.41,-72.44],[8.0,-72.36],[7.42,-72.44],[7.34,-72.2],
+    [6.99,-71.96],[7.09,-70.67],[6.1,-69.39],[6.21,-68.99],[6.15,-68.27],[6.27,-67.7],
+    [5.56,-67.52],[5.22,-67.74],[4.5,-67.82],[3.84,-67.62],[3.32,-67.3],[2.82,-67.81],
+    [2.6,-67.45],[2.25,-67.18],[1.25,-66.88],
+  ],
+);
+
+// Paraguay
+const _cGeo121 = _Continent(
+  bbox: _BBox(-27.55, -19.34, -62.69, -54.29),
+  polygon: [
+    [-20.18,-58.17],[-20.73,-57.87],[-22.09,-57.94],[-22.28,-56.88],[-22.09,-56.47],[-22.36,-55.8],
+    [-22.66,-55.61],[-23.57,-55.52],[-23.96,-55.4],[-24.0,-55.03],[-23.84,-54.65],[-24.02,-54.29],
+    [-24.57,-54.29],[-25.16,-54.43],[-25.74,-54.63],[-26.62,-54.79],[-27.39,-55.7],[-27.55,-56.49],
+    [-27.4,-57.61],[-27.12,-58.62],[-25.6,-57.63],[-25.16,-57.78],[-24.77,-58.81],[-24.03,-60.03],
+    [-23.88,-60.85],[-22.25,-62.69],[-21.05,-62.29],[-20.51,-62.27],[-19.63,-61.79],[-19.34,-60.04],
+    [-19.36,-59.12],[-19.87,-58.18],[-20.18,-58.17],
+  ],
+);
+
+// Venezuela
+const _cGeo122 = _Continent(
+  bbox: _BBox(0.72, 12.16, -73.3, -59.76),
+  polygon: [
+    [5.2,-60.73],[4.92,-60.6],[4.54,-60.97],[4.16,-62.09],[4.01,-62.8],[3.77,-63.09],
+    [4.02,-63.89],[4.06,-64.82],[3.8,-64.37],[3.13,-64.41],[2.5,-64.27],[2.41,-63.42],
+    [2.2,-63.37],[1.92,-64.08],[1.33,-64.61],[1.1,-65.35],[0.79,-65.55],[0.72,-66.33],
+    [1.25,-66.88],[2.25,-67.18],[2.82,-67.81],[3.32,-67.3],[3.54,-67.34],[3.84,-67.62],
+    [4.5,-67.82],[5.22,-67.74],[5.56,-67.52],[6.27,-67.7],[6.15,-68.27],[6.21,-68.99],
+    [6.1,-69.39],[6.96,-70.09],[7.09,-70.67],[6.99,-71.96],[7.42,-72.44],[7.63,-72.48],
+    [8.0,-72.36],[8.41,-72.44],[8.63,-72.66],[9.09,-72.79],[9.74,-73.03],[10.45,-72.91],
+    [10.82,-72.61],[11.11,-72.23],[11.61,-71.97],[11.78,-71.33],[11.54,-71.36],[10.97,-71.62],
+    [10.45,-71.63],[9.87,-72.07],[9.07,-71.7],[9.14,-71.26],[9.86,-71.04],[10.21,-71.35],
+    [11.38,-70.16],[11.85,-70.29],[12.16,-69.94],[11.46,-69.58],[11.44,-68.88],[10.89,-68.23],
+    [10.55,-67.3],[10.65,-66.23],[10.2,-65.66],[10.08,-64.89],[10.39,-64.33],[10.64,-64.32],
+    [10.7,-63.08],[10.42,-62.73],[9.95,-62.39],[9.87,-61.59],[9.38,-60.83],[8.58,-60.67],
+    [8.6,-60.15],[8.37,-59.76],[7.41,-60.64],[7.04,-60.3],[6.86,-60.54],[6.7,-61.16],
+    [6.23,-61.14],[5.96,-61.41],[5.2,-60.73],
+  ],
+);
+
+// Falkland Is.
+const _cGeo123 = _Continent(
+  bbox: _BBox(-52.3, -51.1, -61.2, -57.75),
+  polygon: [
+    [-51.85,-61.2],[-51.25,-60],[-51.5,-59.15],[-51.1,-58.55],[-51.55,-57.75],[-51.9,-58.05],
+    [-52.2,-59.4],[-51.85,-59.85],[-52.3,-60.7],[-51.85,-61.2],
+  ],
+);
+
+// Ethiopia
+const _cGeo124 = _Continent(
+  bbox: _BBox(3.42, 14.96, 32.95, 47.79),
+  polygon: [
+    [8.0,47.79],[5.0,44.96],[4.96,43.66],[4.25,42.77],[4.23,42.13],[3.92,41.86],
+    [3.92,41.17],[4.26,40.77],[3.84,39.85],[3.42,39.56],[3.5,38.89],[3.62,38.67],
+    [3.59,38.44],[3.6,38.12],[4.45,36.86],[4.45,36.16],[4.78,35.82],[5.34,35.82],
+    [5.51,35.3],[6.59,34.71],[6.83,34.25],[7.23,34.08],[7.71,33.57],[7.78,32.95],
+    [8.35,33.29],[8.38,33.83],[8.68,33.97],[9.58,33.96],[10.63,34.26],[10.91,34.73],
+    [11.32,34.83],[12.08,35.26],[12.58,35.86],[13.56,36.27],[14.42,36.43],[14.21,37.59],
+    [14.96,37.91],[14.51,38.51],[14.74,39.1],[14.53,39.34],[14.52,40.03],[14.12,40.9],
+    [13.77,41.16],[13.45,41.6],[12.87,42.01],[12.54,42.35],[12.1,42.0],[11.63,41.66],
+    [11.36,41.74],[11.05,41.76],[11.03,42.31],[11.11,42.55],[10.93,42.78],[10.57,42.56],
+    [10.02,42.93],[9.54,43.3],[9.18,43.68],[8.0,46.95],[8.0,47.79],
+  ],
+);
+
+// S. Sudan
+const _cGeo125 = _Continent(
+  bbox: _BBox(3.51, 12.25, 23.89, 35.3),
+  polygon: [
+    [3.51,30.83],[4.17,29.95],[4.6,29.72],[4.39,29.16],[4.46,28.7],[4.29,28.43],
+    [4.41,27.98],[5.23,27.37],[5.55,27.21],[5.95,26.47],[6.55,26.21],[6.98,25.8],
+    [7.5,25.12],[7.83,25.11],[8.23,24.57],[8.62,23.89],[8.73,24.19],[8.92,24.54],
+    [9.81,24.79],[10.27,25.07],[10.41,25.79],[10.14,25.96],[9.55,26.48],[9.47,26.75],
+    [9.64,27.11],[9.6,27.83],[9.4,27.97],[9.4,28.97],[9.6,29.0],[9.79,29.52],
+    [10.08,29.62],[10.29,30.0],[9.71,30.84],[9.81,31.35],[10.53,31.85],[11.08,32.4],
+    [11.68,32.31],[11.97,32.07],[12.02,32.67],[12.25,32.74],[12.18,33.21],[11.44,33.09],
+    [10.72,33.21],[10.33,33.72],[9.98,33.84],[9.48,33.82],[9.46,33.96],[8.68,33.97],
+    [8.38,33.83],[8.35,33.29],[7.78,32.95],[7.71,33.57],[7.23,34.08],[6.83,34.25],
+    [6.59,34.71],[5.51,35.3],[4.85,34.62],[4.25,34.01],[3.79,33.39],[3.79,32.69],
+    [3.56,31.88],[3.78,31.25],[3.51,30.83],
+  ],
+);
+
+// Somalia
+const _cGeo126 = _Continent(
+  bbox: _BBox(-1.68, 12.02, 40.98, 51.13),
+  polygon: [
+    [-1.68,41.59],[-0.86,40.99],[2.78,40.98],[3.92,41.86],[4.23,42.13],[4.25,42.77],
+    [4.96,43.66],[5.0,44.96],[8.0,47.79],[8.84,48.49],[9.45,48.94],[9.97,48.94],
+    [10.98,48.94],[11.39,48.94],[11.41,48.95],[11.41,48.95],[11.43,49.27],[11.58,49.73],
+    [11.68,50.26],[12.02,50.73],[12.02,51.11],[11.75,51.13],[11.17,51.04],[10.64,51.05],
+    [10.28,50.83],[9.2,50.55],[8.08,50.07],[6.8,49.45],[5.34,48.59],[4.22,47.74],
+    [2.86,46.56],[2.05,45.56],[1.05,44.07],[0.29,43.14],[-0.92,42.04],[-1.45,41.81],
+    [-1.68,41.59],
+  ],
+);
+
+// Kenya
+const _cGeo127 = _Continent(
+  bbox: _BBox(-4.68, 5.51, 33.89, 41.86),
+  polygon: [
+    [-4.68,39.2],[-3.68,37.77],[-3.1,37.7],[-1.06,34.07],[-0.95,33.9],[0.11,33.89],
+    [0.52,34.18],[1.18,34.67],[1.91,35.04],[3.05,34.6],[3.56,34.48],[4.25,34.01],
+    [4.85,34.62],[5.51,35.3],[5.34,35.82],[4.78,35.82],[4.45,36.16],[4.45,36.86],
+    [3.6,38.12],[3.59,38.44],[3.62,38.67],[3.5,38.89],[3.42,39.56],[3.84,39.85],
+    [4.26,40.77],[3.92,41.17],[3.92,41.86],[2.78,40.98],[-0.86,40.99],[-1.68,41.59],
+    [-2.08,40.88],[-2.5,40.64],[-2.57,40.26],[-3.28,40.12],[-3.68,39.8],[-4.35,39.6],
+    [-4.68,39.2],
+  ],
+);
+
+// Malawi
+const _cGeo128 = _Continent(
+  bbox: _BBox(-16.8, -9.23, 32.69, 35.77),
+  polygon: [
+    [-9.23,32.76],[-9.42,33.74],[-9.69,33.94],[-10.16,34.28],[-11.52,34.56],[-12.28,34.28],
+    [-13.58,34.56],[-13.57,34.91],[-13.89,35.27],[-14.61,35.69],[-15.9,35.77],[-16.11,35.34],
+    [-16.8,35.03],[-16.18,34.38],[-15.48,34.31],[-15.01,34.52],[-14.61,34.46],[-14.36,34.06],
+    [-14.45,33.79],[-13.97,33.21],[-13.71,32.69],[-12.78,32.99],[-12.44,33.31],[-11.61,33.11],
+    [-10.8,33.32],[-10.53,33.49],[-9.68,33.23],[-9.23,32.76],
+  ],
+);
+
+// Tanzania
+const _cGeo129 = _Continent(
+  bbox: _BBox(-11.72, -0.95, 29.34, 40.32),
+  polygon: [
+    [-0.95,33.9],[-1.06,34.07],[-3.1,37.7],[-3.68,37.77],[-4.68,39.2],[-5.91,38.74],
+    [-6.48,38.8],[-6.84,39.44],[-7.1,39.47],[-7.7,39.19],[-8.01,39.25],[-8.49,39.19],
+    [-9.11,39.54],[-10.1,39.95],[-10.32,40.32],[-10.32,40.32],[-10.9,39.52],[-11.29,38.43],
+    [-11.27,37.83],[-11.57,37.47],[-11.59,36.78],[-11.72,36.51],[-11.44,35.31],[-11.52,34.56],
+    [-10.16,34.28],[-9.69,33.94],[-9.42,33.74],[-9.23,32.76],[-8.93,32.19],[-8.76,31.56],
+    [-8.59,31.16],[-8.34,30.74],[-8.34,30.74],[-7.08,30.2],[-6.52,29.62],[-5.94,29.42],
+    [-5.42,29.52],[-4.5,29.34],[-4.45,29.75],[-4.09,30.12],[-3.57,30.51],[-3.36,30.75],
+    [-3.03,30.74],[-2.81,30.53],[-2.41,30.47],[-2.41,30.47],[-2.29,30.76],[-1.7,30.82],
+    [-1.13,30.42],[-1.01,30.77],[-1.03,31.87],[-0.95,33.9],
+  ],
+);
+
+// Somaliland
+const _cGeo130 = _Continent(
+  bbox: _BBox(8.0, 11.46, 42.56, 48.95),
+  polygon: [
+    [11.41,48.95],[11.41,48.95],[11.39,48.94],[10.98,48.94],[9.97,48.94],[9.45,48.94],
+    [8.84,48.49],[8.0,47.79],[8.0,46.95],[9.18,43.68],[9.54,43.3],[10.02,42.93],
+    [10.57,42.56],[10.93,42.78],[11.46,43.15],[11.28,43.47],[10.86,43.67],[10.45,44.12],
+    [10.44,44.61],[10.7,45.56],[10.82,46.65],[11.13,47.53],[11.19,48.02],[11.38,48.38],
+    [11.41,48.95],[11.41,48.95],
+  ],
+);
+
+// Morocco
+const _cGeo131 = _Continent(
+  bbox: _BBox(21.42, 35.76, -17.02, -1.12),
+  polygon: [
+    [35.17,-2.17],[34.53,-1.79],[33.92,-1.73],[32.86,-1.39],[32.65,-1.12],[32.26,-1.31],
+    [32.09,-2.62],[31.72,-3.07],[31.64,-3.65],[30.9,-3.69],[30.5,-4.86],[30.0,-5.24],
+    [29.73,-6.06],[29.58,-7.06],[28.84,-8.67],[27.66,-8.67],[27.66,-8.82],[27.12,-8.79],
+    [27.09,-9.41],[26.86,-9.74],[26.86,-10.19],[26.99,-10.55],[26.88,-11.39],[26.1,-11.72],
+    [26.03,-12.03],[24.77,-12.5],[23.69,-13.89],[22.31,-14.22],[21.86,-14.63],[21.5,-14.75],
+    [21.42,-17.0],[21.42,-17.02],[21.89,-16.97],[22.16,-16.59],[22.68,-16.26],[23.02,-16.33],
+    [23.72,-15.98],[24.36,-15.43],[24.52,-15.09],[25.1,-14.82],[25.64,-14.8],[26.25,-14.44],
+    [26.62,-13.77],[27.64,-13.14],[27.65,-13.12],[28.04,-12.62],[28.15,-11.69],[28.83,-10.9],
+    [29.1,-10.4],[29.93,-9.56],[31.18,-9.81],[32.04,-9.43],[32.56,-9.3],[33.24,-8.66],
+    [33.7,-7.65],[34.11,-6.91],[35.15,-6.24],[35.76,-5.93],[35.76,-5.19],[35.33,-4.59],
+    [35.4,-3.64],[35.18,-2.6],[35.17,-2.17],
+  ],
+);
+
+// W. Sahara
+const _cGeo132 = _Continent(
+  bbox: _BBox(21.0, 27.66, -17.06, -8.67),
+  polygon: [
+    [27.66,-8.67],[27.59,-8.67],[27.4,-8.68],[25.88,-8.69],[25.93,-11.97],[23.37,-11.94],
+    [23.28,-12.87],[22.77,-13.12],[21.33,-12.93],[21.33,-16.85],[21.0,-17.06],[21.42,-17.02],
+    [21.42,-17.0],[21.5,-14.75],[21.86,-14.63],[22.31,-14.22],[23.69,-13.89],[24.77,-12.5],
+    [26.03,-12.03],[26.1,-11.72],[26.88,-11.39],[26.99,-10.55],[26.86,-10.19],[26.86,-9.74],
+    [27.09,-9.41],[27.12,-8.79],[27.66,-8.82],[27.66,-8.67],
+  ],
+);
+
+// Congo
+const _cGeo133 = _Continent(
+  bbox: _BBox(-5.04, 3.73, 11.09, 18.45),
+  polygon: [
+    [3.5,18.45],[2.9,18.39],[2.37,18.09],[1.74,17.9],[0.86,17.77],[0.29,17.83],
+    [-0.06,17.66],[-0.42,17.64],[-0.74,17.52],[-1.23,16.87],[-1.74,16.41],[-2.71,15.97],
+    [-3.54,16.01],[-3.86,15.75],[-4.34,15.17],[-4.97,14.58],[-4.79,14.21],[-4.51,14.14],
+    [-4.5,13.6],[-4.88,13.26],[-4.78,13.0],[-4.44,12.62],[-4.61,12.32],[-5.04,11.91],
+    [-3.98,11.09],[-3.43,11.86],[-2.77,11.48],[-2.51,11.82],[-2.39,12.5],[-1.95,12.58],
+    [-2.43,13.11],[-2.47,13.99],[-2.0,14.3],[-1.33,14.43],[-0.55,14.32],[0.04,13.84],
+    [1.2,14.28],[1.4,14.03],[1.31,13.28],[1.83,13.0],[2.27,13.08],[2.23,14.34],
+    [1.96,15.15],[1.73,15.94],[2.27,16.01],[3.2,16.54],[3.73,17.13],[3.56,17.81],
+    [3.5,18.45],
+  ],
+);
+
+// Dem. Rep. Congo
+const _cGeo134 = _Continent(
+  bbox: _BBox(-13.26, 5.26, 12.18, 31.17),
+  polygon: [
+    [-4.5,29.34],[-5.42,29.52],[-6.52,29.62],[-7.08,30.2],[-8.34,30.74],[-8.24,30.35],
+    [-8.53,28.73],[-9.16,28.45],[-10.79,28.5],[-11.79,28.37],[-12.36,29.34],[-13.26,29.7],
+    [-13.25,28.93],[-12.27,28.16],[-12.13,27.39],[-11.92,26.55],[-11.78,25.75],[-11.24,24.78],
+    [-11.26,24.31],[-10.93,23.91],[-11.02,22.84],[-10.99,22.4],[-9.89,22.21],[-9.52,21.88],
+    [-8.31,21.95],[-7.92,21.75],[-7.3,20.51],[-6.94,20.6],[-7.12,20.04],[-7.16,19.42],
+    [-7.99,19.02],[-7.99,18.13],[-8.07,17.47],[-7.22,16.86],[-6.62,16.57],[-5.86,13.38],
+    [-5.98,13.02],[-6.1,12.32],[-5.79,12.18],[-5.25,12.47],[-4.78,13.0],[-4.88,13.26],
+    [-4.51,14.14],[-4.79,14.21],[-4.34,15.17],[-3.86,15.75],[-2.71,15.97],[-1.74,16.41],
+    [-0.74,17.52],[-0.42,17.64],[0.29,17.83],[1.74,17.9],[2.37,18.09],[3.5,18.45],
+    [4.2,18.54],[5.03,19.47],[4.69,20.29],[4.22,21.66],[4.03,22.41],[4.71,22.84],
+    [5.11,24.41],[4.9,24.81],[5.17,25.28],[5.26,25.65],[5.13,27.04],[5.23,27.37],
+    [4.29,28.43],[4.46,28.7],[4.6,29.72],[4.17,29.95],[3.51,30.83],[2.2,31.17],
+    [1.85,30.85],[1.06,30.09],[0.6,29.88],[-0.59,29.59],[-1.34,29.58],[-2.22,29.25],
+    [-2.29,29.12],[-3.29,29.28],[-4.5,29.34],
+  ],
+);
+
+// Namibia
+const _cGeo135 = _Continent(
+  bbox: _BBox(-29.05, -16.94, 11.73, 25.08),
+  polygon: [
+    [-24.77,19.9],[-28.46,19.89],[-28.97,19.0],[-29.05,18.46],[-28.86,17.84],[-28.78,17.39],
+    [-28.36,17.22],[-28.08,16.82],[-28.58,16.34],[-27.82,15.6],[-27.09,15.21],[-26.12,14.99],
+    [-25.39,14.74],[-23.85,14.41],[-22.66,14.39],[-22.11,14.26],[-21.7,13.87],[-20.87,13.35],
+    [-19.67,12.83],[-19.05,12.61],[-18.07,11.79],[-17.3,11.73],[-17.11,12.22],[-16.94,12.81],
+    [-16.97,13.46],[-17.42,14.06],[-17.35,14.21],[-17.31,18.26],[-17.79,18.96],[-17.93,21.38],
+    [-17.52,23.22],[-17.3,24.03],[-17.35,24.68],[-17.58,25.08],[-17.66,25.08],[-17.89,24.52],
+    [-17.89,24.22],[-18.28,23.58],[-17.87,23.2],[-18.22,21.66],[-18.25,20.91],[-21.81,20.88],
+    [-21.85,19.9],[-24.77,19.9],
+  ],
+);
+
+// South Africa
+const _cGeo136 = _Continent(
+  bbox: _BBox(-34.82, -22.09, 16.34, 32.83),
+  polygon: [
+    [-28.58,16.34],[-28.08,16.82],[-28.36,17.22],[-28.78,17.39],[-28.86,17.84],[-29.05,18.46],
+    [-28.97,19.0],[-28.46,19.89],[-24.77,19.9],[-24.92,20.17],[-25.87,20.76],[-26.48,20.67],
+    [-26.83,20.89],[-26.73,21.61],[-26.28,22.11],[-25.98,22.58],[-25.5,22.82],[-25.27,23.31],
+    [-25.39,23.73],[-25.67,24.21],[-25.72,25.03],[-25.49,25.66],[-25.17,25.77],[-24.7,25.94],
+    [-24.62,26.49],[-24.24,26.79],[-23.57,27.12],[-22.83,28.02],[-22.09,29.43],[-22.1,29.84],
+    [-22.27,30.32],[-22.15,30.66],[-22.25,31.19],[-23.66,31.67],[-24.37,31.93],[-25.48,31.75],
+    [-25.84,31.84],[-25.66,31.33],[-25.73,31.04],[-26.02,30.95],[-26.74,30.69],[-27.29,31.28],
+    [-27.18,31.87],[-26.73,32.07],[-26.74,32.83],[-27.47,32.58],[-28.3,32.46],[-28.75,32.2],
+    [-29.26,31.52],[-29.4,31.33],[-29.91,30.9],[-30.42,30.62],[-31.14,30.06],[-32.17,28.93],
+    [-32.77,28.22],[-33.23,27.46],[-33.61,26.42],[-33.67,25.91],[-33.94,25.78],[-33.8,25.17],
+    [-33.99,24.68],[-33.79,23.59],[-33.92,22.99],[-33.86,22.57],[-34.26,21.54],[-34.42,20.69],
+    [-34.8,20.07],[-34.82,19.62],[-34.46,19.19],[-34.44,18.86],[-34.0,18.42],[-34.14,18.38],
+    [-33.87,18.24],[-33.28,18.25],[-32.61,17.93],[-32.43,18.25],[-31.66,18.22],[-30.73,17.57],
+    [-29.88,17.06],[-29.88,17.06],[-28.58,16.34],
+  ],
+);
+
+// Libya
+const _cGeo137 = _Continent(
+  bbox: _BBox(19.58, 33.14, 9.32, 25.16),
+  polygon: [
+    [22,25],[20.0,25.0],[20,23.85],[19.58,23.84],[21.5,19.85],[23.41,15.86],
+    [22.86,14.85],[22.49,14.14],[23.04,13.58],[23.47,12.0],[24.1,11.56],[24.56,10.77],
+    [24.38,10.3],[24.94,9.95],[25.37,9.91],[26.09,9.32],[26.51,9.72],[27.14,9.63],
+    [27.69,9.76],[28.14,9.68],[28.96,9.86],[29.42,9.81],[30.31,9.48],[30.54,9.97],
+    [30.96,10.06],[31.38,9.95],[31.76,10.64],[32.08,10.94],[32.37,11.43],[33.14,11.49],
+    [32.79,12.66],[32.88,13.08],[32.71,13.92],[32.27,15.25],[31.38,15.71],[31.18,16.61],
+    [30.76,18.02],[30.27,19.09],[30.53,19.57],[30.99,20.05],[31.75,19.82],[32.24,20.13],
+    [32.71,20.85],[32.84,21.54],[32.64,22.9],[32.19,23.24],[32.19,23.61],[32.02,23.93],
+    [31.9,24.92],[31.57,25.16],[31.09,24.8],[30.66,24.96],[30.04,24.7],[29.24,25],
+    [25.68,25],[22,25],
+  ],
+);
+
+// Tunisia
+const _cGeo138 = _Continent(
+  bbox: _BBox(30.31, 37.35, 7.52, 11.49),
+  polygon: [
+    [30.31,9.48],[32.1,9.06],[32.51,8.44],[32.75,8.43],[33.34,7.61],[34.1,7.52],
+    [34.66,8.14],[35.48,8.38],[36.43,8.22],[36.95,8.42],[37.35,9.51],[37.23,10.21],
+    [36.72,10.18],[37.09,11.03],[36.9,11.1],[36.41,10.6],[35.95,10.59],[35.7,10.94],
+    [34.83,10.81],[34.33,10.15],[33.79,10.34],[33.77,10.86],[33.29,11.11],[33.14,11.49],
+    [32.37,11.43],[32.08,10.94],[31.76,10.64],[31.38,9.95],[30.96,10.06],[30.54,9.97],
+    [30.31,9.48],
+  ],
+);
+
+// Zambia
+const _cGeo139 = _Continent(
+  bbox: _BBox(-17.96, -8.24, 21.89, 33.49),
+  polygon: [
+    [-8.34,30.74],[-8.59,31.16],[-8.76,31.56],[-8.93,32.19],[-9.23,32.76],[-9.68,33.23],
+    [-10.53,33.49],[-10.8,33.32],[-11.61,33.11],[-12.44,33.31],[-12.78,32.99],[-13.71,32.69],
+    [-13.97,33.21],[-14.8,30.18],[-15.51,30.27],[-15.64,29.52],[-16.04,28.95],[-16.39,28.83],
+    [-16.47,28.47],[-17.29,27.6],[-17.94,27.04],[-17.96,26.71],[-17.85,26.38],[-17.74,25.26],
+    [-17.66,25.08],[-17.58,25.08],[-17.35,24.68],[-17.3,24.03],[-17.52,23.22],[-16.9,22.56],
+    [-16.08,21.89],[-12.9,21.93],[-12.91,24.02],[-12.57,23.93],[-12.19,24.08],[-11.72,23.9],
+    [-11.24,24.02],[-10.93,23.91],[-10.95,24.26],[-11.26,24.31],[-11.24,24.78],[-11.33,25.42],
+    [-11.78,25.75],[-11.92,26.55],[-11.61,27.16],[-12.13,27.39],[-12.27,28.16],[-12.7,28.52],
+    [-13.25,28.93],[-13.26,29.7],[-12.18,29.62],[-12.36,29.34],[-11.97,28.64],[-11.79,28.37],
+    [-10.79,28.5],[-9.61,28.67],[-9.16,28.45],[-8.53,28.73],[-8.41,29.0],[-8.24,30.35],
+    [-8.34,30.74],
+  ],
+);
+
+// Sierra Leone
+const _cGeo140 = _Continent(
+  bbox: _BBox(6.79, 10.05, -13.25, -10.23),
+  polygon: [
+    [8.9,-13.25],[9.34,-12.71],[9.62,-12.6],[9.84,-12.43],[9.86,-12.15],[10.05,-11.92],
+    [10.05,-11.12],[9.69,-10.84],[9.27,-10.62],[8.98,-10.65],[8.72,-10.49],[8.35,-10.51],
+    [8.41,-10.23],[7.94,-10.7],[7.4,-11.15],[7.11,-11.2],[6.79,-11.44],[6.86,-11.71],
+    [7.26,-12.43],[7.8,-12.95],[8.16,-13.12],[8.9,-13.25],
+  ],
+);
+
+// Guinea
+const _cGeo141 = _Continent(
+  bbox: _BBox(7.31, 12.59, -15.13, -7.83),
+  polygon: [
+    [12.59,-13.7],[12.58,-13.22],[12.33,-12.5],[12.35,-12.28],[12.47,-12.2],[12.39,-11.66],
+    [12.44,-11.51],[12.08,-11.46],[12.08,-11.3],[12.21,-11.04],[12.18,-10.87],[11.92,-10.59],
+    [11.84,-10.17],[12.06,-9.89],[12.19,-9.57],[12.33,-9.33],[12.31,-9.13],[12.09,-8.91],
+    [11.81,-8.79],[11.39,-8.38],[11.14,-8.58],[10.81,-8.62],[10.91,-8.41],[10.79,-8.28],
+    [10.49,-8.34],[10.21,-8.03],[10.13,-8.23],[9.79,-8.31],[9.38,-8.08],[8.58,-7.83],
+    [8.46,-8.2],[8.32,-8.3],[8.12,-8.22],[7.69,-8.28],[7.69,-8.44],[7.71,-8.72],
+    [7.31,-8.93],[7.31,-9.21],[7.53,-9.4],[7.93,-9.34],[8.54,-9.76],[8.43,-10.02],
+    [8.41,-10.23],[8.35,-10.51],[8.72,-10.49],[8.98,-10.65],[9.27,-10.62],[9.69,-10.84],
+    [10.05,-11.12],[10.05,-11.92],[9.86,-12.15],[9.84,-12.43],[9.62,-12.6],[9.34,-12.71],
+    [8.9,-13.25],[9.49,-13.69],[9.89,-14.07],[10.02,-14.33],[10.21,-14.58],[10.66,-14.69],
+    [10.88,-14.84],[11.04,-15.13],[11.53,-14.69],[11.51,-14.38],[11.68,-14.12],[11.68,-13.9],
+    [11.81,-13.74],[12.14,-13.83],[12.25,-13.72],[12.59,-13.7],
+  ],
+);
+
+// Liberia
+const _cGeo142 = _Continent(
+  bbox: _BBox(4.36, 8.54, -11.44, -7.54),
+  polygon: [
+    [7.69,-8.44],[7.4,-8.49],[6.91,-8.39],[6.47,-8.6],[6.19,-8.31],[6.13,-7.99],
+    [5.71,-7.57],[5.31,-7.54],[5.19,-7.64],[4.36,-7.71],[4.36,-7.97],[4.83,-9.0],
+    [5.59,-9.91],[6.14,-10.77],[6.79,-11.44],[7.11,-11.2],[7.4,-11.15],[7.94,-10.7],
+    [8.41,-10.23],[8.43,-10.02],[8.54,-9.76],[7.93,-9.34],[7.53,-9.4],[7.31,-9.21],
+    [7.31,-8.93],[7.71,-8.72],[7.69,-8.44],
+  ],
+);
+
+// Central African Rep.
+const _cGeo143 = _Continent(
+  bbox: _BBox(2.27, 11.14, 14.46, 27.37),
+  polygon: [
+    [5.23,27.37],[5.13,27.04],[5.15,26.4],[5.26,25.65],[5.17,25.28],[4.93,25.13],
+    [4.9,24.81],[5.11,24.41],[4.61,23.3],[4.71,22.84],[4.63,22.7],[4.03,22.41],
+    [4.22,21.66],[4.32,20.93],[4.69,20.29],[5.03,19.47],[4.71,18.93],[4.2,18.54],
+    [3.5,18.45],[3.56,17.81],[3.73,17.13],[3.2,16.54],[2.27,16.01],[2.56,15.91],
+    [3.01,15.86],[3.34,15.41],[3.85,15.04],[4.21,14.95],[4.73,14.48],[5.03,14.56],
+    [5.45,14.46],[6.23,14.54],[6.41,14.78],[7.42,15.28],[7.5,16.11],[7.75,16.29],
+    [7.73,16.46],[7.51,16.71],[7.89,17.96],[8.28,18.39],[8.63,18.91],[8.98,18.81],
+    [9.07,19.09],[9.01,20.06],[9.48,21.0],[10.57,21.72],[10.97,22.23],[11.14,22.86],
+    [10.71,22.98],[10.09,23.55],[9.68,23.56],[9.27,23.39],[8.95,23.46],[8.67,23.81],
+    [8.23,24.57],[7.83,25.11],[7.5,25.12],[6.98,25.8],[6.55,26.21],[5.95,26.47],
+    [5.55,27.21],[5.23,27.37],
+  ],
+);
+
+// Sudan
+const _cGeo144 = _Continent(
+  bbox: _BBox(8.23, 22, 21.94, 38.41),
+  polygon: [
+    [8.23,24.57],[8.67,23.81],[8.95,23.46],[9.27,23.39],[9.68,23.56],[10.09,23.55],
+    [10.71,22.98],[11.14,22.86],[11.38,22.88],[11.68,22.51],[12.26,22.5],[12.65,22.29],
+    [12.59,21.94],[12.96,22.04],[13.37,22.3],[13.79,22.18],[14.09,22.51],[14.33,22.3],
+    [14.94,22.57],[15.68,23.02],[15.61,23.89],[19.58,23.84],[20,23.85],[20.0,25.0],
+    [22,25],[22,29.02],[22,32.9],[22,36.87],[21.02,37.19],[20.84,36.97],
+    [19.81,37.11],[18.61,37.48],[18.37,37.86],[18.0,38.41],[17.43,37.9],[17.26,37.17],
+    [16.96,36.85],[16.29,36.75],[14.82,36.32],[14.42,36.43],[13.56,36.27],[12.58,35.86],
+    [12.08,35.26],[11.32,34.83],[10.91,34.73],[10.63,34.26],[9.58,33.96],[8.68,33.97],
+    [9.46,33.96],[9.48,33.82],[9.98,33.84],[10.33,33.72],[10.72,33.21],[11.44,33.09],
+    [12.18,33.21],[12.25,32.74],[12.02,32.67],[11.97,32.07],[11.68,32.31],[11.08,32.4],
+    [10.53,31.85],[9.81,31.35],[9.71,30.84],[10.29,30.0],[10.08,29.62],[9.79,29.52],
+    [9.6,29.0],[9.4,28.97],[9.4,27.97],[9.6,27.83],[9.64,27.11],[9.47,26.75],
+    [9.55,26.48],[10.14,25.96],[10.41,25.79],[10.27,25.07],[9.81,24.79],[8.92,24.54],
+    [8.73,24.19],[8.62,23.89],[8.23,24.57],
+  ],
+);
+
+// Djibouti
+const _cGeo145 = _Continent(
+  bbox: _BBox(10.93, 12.7, 41.66, 43.32),
+  polygon: [
+    [12.54,42.35],[12.46,42.78],[12.7,43.08],[12.39,43.32],[11.97,43.29],[11.74,42.72],
+    [11.46,43.15],[10.93,42.78],[11.11,42.55],[11.03,42.31],[11.05,41.76],[11.36,41.74],
+    [11.63,41.66],[12.1,42.0],[12.54,42.35],
+  ],
+);
+
+// Eritrea
+const _cGeo146 = _Continent(
+  bbox: _BBox(12.46, 18.0, 36.32, 43.08),
+  polygon: [
+    [14.42,36.43],[14.82,36.32],[16.29,36.75],[16.96,36.85],[17.26,37.17],[17.43,37.9],
+    [18.0,38.41],[16.84,38.99],[15.92,39.27],[15.44,39.81],[14.49,41.18],[13.92,41.73],
+    [13.34,42.28],[13.0,42.59],[12.7,43.08],[12.46,42.78],[12.54,42.35],[12.87,42.01],
+    [13.45,41.6],[13.77,41.16],[14.12,40.9],[14.52,40.03],[14.53,39.34],[14.74,39.1],
+    [14.51,38.51],[14.96,37.91],[14.21,37.59],[14.42,36.43],
+  ],
+);
+
+// Côte d'Ivoire
+const _cGeo147 = _Continent(
+  bbox: _BBox(4.34, 10.52, -8.6, -2.56),
+  polygon: [
+    [10.21,-8.03],[10.3,-7.9],[10.15,-7.62],[10.14,-6.85],[10.43,-6.67],[10.41,-6.49],
+    [10.52,-6.21],[10.1,-6.05],[10.22,-5.82],[10.37,-5.4],[10.15,-4.95],[9.82,-4.78],
+    [9.61,-4.33],[9.86,-3.98],[9.9,-3.51],[9.64,-2.83],[8.22,-2.56],[7.38,-2.98],
+    [6.25,-3.24],[5.39,-2.81],[4.99,-2.86],[4.98,-3.31],[5.18,-4.01],[5.17,-4.65],
+    [4.99,-5.83],[4.71,-6.53],[4.34,-7.52],[4.36,-7.71],[5.19,-7.64],[5.31,-7.54],
+    [5.71,-7.57],[6.13,-7.99],[6.19,-8.31],[6.47,-8.6],[6.91,-8.39],[7.4,-8.49],
+    [7.69,-8.44],[7.69,-8.28],[8.12,-8.22],[8.32,-8.3],[8.46,-8.2],[8.58,-7.83],
+    [9.38,-8.08],[9.79,-8.31],[10.13,-8.23],[10.21,-8.03],
+  ],
+);
+
+// Mali
+const _cGeo148 = _Continent(
+  bbox: _BBox(10.1, 24.97, -12.17, 4.27),
+  polygon: [
+    [12.44,-11.51],[12.75,-11.47],[13.14,-11.55],[13.42,-11.93],[13.99,-12.12],[14.62,-12.17],
+    [14.8,-11.83],[15.39,-11.67],[15.41,-11.35],[15.13,-10.65],[15.33,-10.09],[15.26,-9.7],
+    [15.49,-9.55],[15.5,-5.54],[16.2,-5.32],[16.33,-5.49],[20.64,-5.97],[24.96,-6.45],
+    [24.97,-4.92],[22.79,-1.55],[20.61,1.82],[20.14,2.06],[19.86,2.68],[19.69,3.15],
+    [19.06,3.16],[19.16,4.27],[16.85,4.27],[16.18,3.72],[15.57,3.64],[15.41,2.75],
+    [15.32,1.39],[14.97,1.02],[14.93,0.37],[14.92,-0.27],[15.12,-0.52],[14.97,-1.07],
+    [14.56,-2.0],[14.25,-2.19],[13.8,-2.97],[13.54,-3.1],[13.34,-3.52],[13.47,-4.01],
+    [13.23,-4.28],[12.54,-4.43],[11.71,-5.22],[11.38,-5.2],[10.95,-5.47],[10.37,-5.4],
+    [10.22,-5.82],[10.1,-6.05],[10.52,-6.21],[10.41,-6.49],[10.43,-6.67],[10.14,-6.85],
+    [10.15,-7.62],[10.3,-7.9],[10.21,-8.03],[10.49,-8.34],[10.79,-8.28],[10.91,-8.41],
+    [10.81,-8.62],[11.14,-8.58],[11.39,-8.38],[11.81,-8.79],[12.09,-8.91],[12.31,-9.13],
+    [12.33,-9.33],[12.19,-9.57],[12.06,-9.89],[11.84,-10.17],[11.92,-10.59],[12.18,-10.87],
+    [12.21,-11.04],[12.08,-11.3],[12.08,-11.46],[12.44,-11.51],
+  ],
+);
+
+// Senegal
+const _cGeo149 = _Continent(
+  bbox: _BBox(12.33, 16.6, -17.63, -11.47),
+  polygon: [
+    [13.59,-16.71],[14.37,-17.13],[14.73,-17.63],[14.92,-17.19],[15.62,-16.7],[16.14,-16.46],
+    [16.46,-16.12],[16.37,-15.62],[16.59,-15.14],[16.6,-14.58],[16.3,-14.1],[16.04,-13.44],
+    [15.3,-12.83],[14.62,-12.17],[13.99,-12.12],[13.42,-11.93],[13.14,-11.55],[12.75,-11.47],
+    [12.44,-11.51],[12.39,-11.66],[12.47,-12.2],[12.35,-12.28],[12.33,-12.5],[12.58,-13.22],
+    [12.59,-13.7],[12.63,-15.55],[12.52,-15.82],[12.55,-16.15],[12.38,-16.68],[13.15,-16.84],
+    [13.13,-15.93],[13.27,-15.69],[13.28,-15.51],[13.51,-15.14],[13.3,-14.71],[13.28,-14.28],
+    [13.51,-13.84],[13.79,-14.05],[13.63,-14.38],[13.63,-14.69],[13.88,-15.08],[13.86,-15.4],
+    [13.62,-15.62],[13.59,-16.71],
+  ],
+);
+
+// Nigeria
+const _cGeo150 = _Continent(
+  bbox: _BBox(4.24, 13.87, 2.69, 14.58),
+  polygon: [
+    [6.26,2.69],[7.87,2.75],[8.51,2.72],[9.14,2.91],[9.44,3.22],[10.06,3.71],
+    [10.33,3.6],[10.73,3.8],[11.33,3.57],[11.66,3.61],[12.55,3.68],[12.96,3.97],
+    [13.53,4.11],[13.75,4.37],[13.87,5.44],[13.49,6.45],[13.12,6.82],[13.1,7.33],
+    [13.34,7.8],[12.83,9.01],[12.85,9.52],[13.28,10.11],[13.25,10.7],[13.39,10.99],
+    [13.33,11.53],[13.04,12.3],[13.6,13.08],[13.56,13.32],[12.46,14.0],[12.48,14.18],
+    [12.09,14.58],[11.9,14.47],[11.57,14.42],[10.8,13.57],[10.16,13.31],[9.64,13.17],
+    [9.42,12.96],[8.72,12.75],[8.31,12.22],[7.8,12.06],[7.4,11.84],[6.98,11.75],
+    [6.64,11.06],[7.06,10.5],[7.04,10.12],[6.45,9.52],[6.44,9.23],[5.48,8.76],
+    [4.77,8.5],[4.41,7.46],[4.46,7.08],[4.24,6.7],[4.26,5.9],[4.89,5.36],
+    [5.61,5.03],[6.27,4.33],[6.26,3.57],[6.26,2.69],
+  ],
+);
+
+// Benin
+const _cGeo151 = _Continent(
+  bbox: _BBox(6.14, 12.24, 0.77, 3.8),
+  polygon: [
+    [6.26,2.69],[6.14,1.87],[6.83,1.62],[9.13,1.66],[9.33,1.46],[9.83,1.43],
+    [10.18,1.08],[10.47,0.77],[11.0,0.9],[11.11,1.24],[11.55,1.45],[11.64,1.94],
+    [11.94,2.15],[12.23,2.49],[12.24,2.85],[11.66,3.61],[11.33,3.57],[10.73,3.8],
+    [10.33,3.6],[10.06,3.71],[9.44,3.22],[9.14,2.91],[8.51,2.72],[7.87,2.75],
+    [6.26,2.69],
+  ],
+);
+
+// Angola
+const _cGeo152 = _Continent(
+  bbox: _BBox(-17.93, -5.86, 11.64, 24.08),
+  polygon: [
+    [-6.1,12.32],[-5.97,12.74],[-5.98,13.02],[-5.86,13.38],[-5.88,16.33],[-6.62,16.57],
+    [-7.22,16.86],[-7.55,17.09],[-8.07,17.47],[-7.99,18.13],[-7.85,18.46],[-7.99,19.02],
+    [-7.74,19.17],[-7.16,19.42],[-7.12,20.04],[-6.94,20.09],[-6.94,20.6],[-7.3,20.51],
+    [-7.29,21.73],[-7.92,21.75],[-8.31,21.95],[-8.91,21.8],[-9.52,21.88],[-9.89,22.21],
+    [-11.08,22.16],[-10.99,22.4],[-11.02,22.84],[-10.87,23.46],[-10.93,23.91],[-11.24,24.02],
+    [-11.72,23.9],[-12.19,24.08],[-12.57,23.93],[-12.91,24.02],[-12.9,21.93],[-16.08,21.89],
+    [-16.9,22.56],[-17.52,23.22],[-17.93,21.38],[-17.79,18.96],[-17.31,18.26],[-17.35,14.21],
+    [-17.42,14.06],[-16.97,13.46],[-16.94,12.81],[-17.11,12.22],[-17.3,11.73],[-16.67,11.64],
+    [-15.79,11.78],[-14.88,12.12],[-14.45,12.18],[-13.55,12.5],[-13.14,12.74],[-12.48,13.31],
+    [-12.04,13.63],[-11.3,13.74],[-10.73,13.69],[-10.37,13.39],[-9.77,13.12],[-9.17,12.88],
+    [-8.96,12.93],[-8.56,13.24],[-7.6,12.93],[-6.93,12.73],[-6.29,12.23],[-6.1,12.32],
+  ],
+);
+
+// Botswana
+const _cGeo153 = _Continent(
+  bbox: _BBox(-26.83, -17.66, 19.9, 29.43),
+  polygon: [
+    [-22.09,29.43],[-22.83,28.02],[-23.57,27.12],[-24.24,26.79],[-24.62,26.49],[-24.7,25.94],
+    [-25.17,25.77],[-25.49,25.66],[-25.72,25.03],[-25.67,24.21],[-25.39,23.73],[-25.27,23.31],
+    [-25.5,22.82],[-25.98,22.58],[-26.28,22.11],[-26.73,21.61],[-26.83,20.89],[-26.48,20.67],
+    [-25.87,20.76],[-24.92,20.17],[-24.77,19.9],[-21.85,19.9],[-21.81,20.88],[-18.25,20.91],
+    [-18.22,21.66],[-17.87,23.2],[-18.28,23.58],[-17.89,24.22],[-17.89,24.52],[-17.66,25.08],
+    [-17.74,25.26],[-18.54,25.65],[-18.71,25.85],[-19.29,26.16],[-20.39,27.3],[-20.5,27.72],
+    [-20.85,27.73],[-21.49,28.02],[-21.64,28.79],[-22.09,29.43],
+  ],
+);
+
+// Zimbabwe
+const _cGeo154 = _Continent(
+  bbox: _BBox(-22.27, -15.51, 25.26, 32.85),
+  polygon: [
+    [-22.25,31.19],[-22.15,30.66],[-22.27,30.32],[-22.1,29.84],[-22.09,29.43],[-21.64,28.79],
+    [-21.49,28.02],[-20.85,27.73],[-20.5,27.72],[-20.39,27.3],[-19.29,26.16],[-18.71,25.85],
+    [-18.54,25.65],[-17.74,25.26],[-17.85,26.38],[-17.96,26.71],[-17.94,27.04],[-17.29,27.6],
+    [-16.47,28.47],[-16.39,28.83],[-16.04,28.95],[-15.64,29.52],[-15.51,30.27],[-15.88,30.34],
+    [-15.86,31.17],[-16.07,31.64],[-16.32,31.85],[-16.39,32.33],[-16.71,32.85],[-17.98,32.85],
+    [-18.67,32.65],[-19.42,32.61],[-19.72,32.77],[-20.3,32.66],[-20.4,32.51],[-21.12,32.24],
+    [-22.25,31.19],
+  ],
+);
+
+// Chad
+const _cGeo155 = _Continent(
+  bbox: _BBox(7.42, 23.41, 13.54, 23.89),
+  polygon: [
+    [19.58,23.84],[15.61,23.89],[15.68,23.02],[14.94,22.57],[14.33,22.3],[14.09,22.51],
+    [13.79,22.18],[13.37,22.3],[12.96,22.04],[12.59,21.94],[12.65,22.29],[12.26,22.5],
+    [11.68,22.51],[11.38,22.88],[11.14,22.86],[10.97,22.23],[10.57,21.72],[9.48,21.0],
+    [9.01,20.06],[9.07,19.09],[8.98,18.81],[8.63,18.91],[8.28,18.39],[7.89,17.96],
+    [7.51,16.71],[7.73,16.46],[7.75,16.29],[7.5,16.11],[7.42,15.28],[7.69,15.44],
+    [8.38,15.12],[8.8,14.98],[8.97,14.54],[9.55,13.95],[10.02,14.17],[9.92,14.63],
+    [9.99,14.91],[9.98,15.47],[10.89,14.92],[11.56,14.96],[12.22,14.89],[12.86,14.5],
+    [13.33,14.6],[13.35,13.95],[14.0,13.96],[14.37,13.54],[15.68,13.97],[16.63,15.25],
+    [17.93,15.3],[19.96,15.69],[20.39,15.9],[20.73,15.49],[21.05,15.47],[21.31,15.1],
+    [22.86,14.85],[23.41,15.86],[21.5,19.85],[19.58,23.84],
+  ],
+);
+
+// Algeria
+const _cGeo156 = _Continent(
+  bbox: _BBox(19.06, 37.12, -8.68, 12.0),
+  polygon: [
+    [27.4,-8.68],[27.59,-8.67],[27.66,-8.67],[28.84,-8.67],[29.58,-7.06],[29.73,-6.06],
+    [30.0,-5.24],[30.5,-4.86],[30.9,-3.69],[31.64,-3.65],[31.72,-3.07],[32.09,-2.62],
+    [32.26,-1.31],[32.65,-1.12],[32.86,-1.39],[33.92,-1.73],[34.53,-1.79],[35.17,-2.17],
+    [35.71,-1.21],[35.89,-0.13],[36.3,0.5],[36.61,1.47],[36.78,3.16],[36.87,4.82],
+    [36.72,5.32],[37.11,6.26],[37.12,7.33],[36.89,7.74],[36.95,8.42],[36.43,8.22],
+    [35.48,8.38],[34.66,8.14],[34.1,7.52],[33.34,7.61],[32.75,8.43],[32.51,8.44],
+    [32.1,9.06],[30.31,9.48],[29.42,9.81],[28.96,9.86],[28.14,9.68],[27.69,9.76],
+    [27.14,9.63],[26.51,9.72],[26.09,9.32],[25.37,9.91],[24.94,9.95],[24.38,10.3],
+    [24.56,10.77],[24.1,11.56],[23.47,12.0],[21.57,8.57],[19.6,5.68],[19.16,4.27],
+    [19.06,3.16],[19.69,3.15],[19.86,2.68],[20.14,2.06],[20.61,1.82],[22.79,-1.55],
+    [24.97,-4.92],[27.4,-8.68],
+  ],
+);
+
+// Mozambique
+const _cGeo157 = _Continent(
+  bbox: _BBox(-26.74, -10.32, 30.18, 40.78),
+  polygon: [
+    [-11.52,34.56],[-11.44,35.31],[-11.72,36.51],[-11.59,36.78],[-11.57,37.47],[-11.27,37.83],
+    [-11.29,38.43],[-10.9,39.52],[-10.32,40.32],[-10.32,40.32],[-10.32,40.32],[-10.77,40.48],
+    [-11.76,40.44],[-12.64,40.56],[-14.2,40.6],[-14.69,40.78],[-15.41,40.48],[-16.1,40.09],
+    [-16.72,39.45],[-17.1,38.54],[-17.59,37.41],[-18.66,36.28],[-18.84,35.9],[-19.55,35.2],
+    [-19.78,34.79],[-20.5,34.7],[-21.25,35.18],[-21.84,35.37],[-22.14,35.39],[-22.09,35.56],
+    [-23.07,35.53],[-23.54,35.37],[-23.71,35.61],[-24.12,35.46],[-24.48,35.04],[-24.82,34.22],
+    [-25.36,33.01],[-25.73,32.57],[-26.15,32.66],[-26.22,32.92],[-26.74,32.83],[-26.73,32.07],
+    [-26.29,31.99],[-25.84,31.84],[-25.48,31.75],[-24.37,31.93],[-23.66,31.67],[-22.25,31.19],
+    [-21.12,32.24],[-20.4,32.51],[-20.3,32.66],[-19.72,32.77],[-19.42,32.61],[-18.67,32.65],
+    [-17.98,32.85],[-16.71,32.85],[-16.39,32.33],[-16.32,31.85],[-16.07,31.64],[-15.86,31.17],
+    [-15.88,30.34],[-15.51,30.27],[-14.8,30.18],[-13.97,33.21],[-14.45,33.79],[-14.36,34.06],
+    [-14.61,34.46],[-15.01,34.52],[-15.48,34.31],[-16.18,34.38],[-16.8,35.03],[-16.11,35.34],
+    [-15.9,35.77],[-14.61,35.69],[-13.89,35.27],[-13.57,34.91],[-13.58,34.56],[-12.28,34.28],
+    [-11.52,34.56],
+  ],
+);
+
+// eSwatini
+const _cGeo158 = _Continent(
+  bbox: _BBox(-27.29, -25.66, 30.68, 32.07),
+  polygon: [
+    [-26.73,32.07],[-27.18,31.87],[-27.29,31.28],[-26.74,30.69],[-26.4,30.68],[-26.02,30.95],
+    [-25.73,31.04],[-25.66,31.33],[-25.84,31.84],[-26.29,31.99],[-26.73,32.07],
+  ],
+);
+
+// Burundi
+const _cGeo159 = _Continent(
+  bbox: _BBox(-4.5, -2.35, 29.02, 30.75),
+  polygon: [
+    [-2.41,30.47],[-2.81,30.53],[-3.03,30.74],[-3.36,30.75],[-3.57,30.51],[-4.09,30.12],
+    [-4.45,29.75],[-4.5,29.34],[-3.29,29.28],[-2.84,29.02],[-2.92,29.63],[-2.35,29.94],
+    [-2.41,30.47],
+  ],
+);
+
+// Rwanda
+const _cGeo160 = _Continent(
+  bbox: _BBox(-2.92, -1.13, 29.02, 30.82),
+  polygon: [
+    [-1.13,30.42],[-1.7,30.82],[-2.29,30.76],[-2.41,30.47],[-2.41,30.47],[-2.35,29.94],
+    [-2.92,29.63],[-2.84,29.02],[-2.29,29.12],[-2.22,29.25],[-1.62,29.29],[-1.34,29.58],
+    [-1.44,29.82],[-1.13,30.42],
+  ],
+);
+
+// Uganda
+const _cGeo161 = _Continent(
+  bbox: _BBox(-1.44, 4.25, 29.58, 35.04),
+  polygon: [
+    [-0.95,33.9],[-1.03,31.87],[-1.01,30.77],[-1.13,30.42],[-1.44,29.82],[-1.34,29.58],
+    [-0.59,29.59],[-0.21,29.82],[0.6,29.88],[1.06,30.09],[1.58,30.47],[1.85,30.85],
+    [2.2,31.17],[2.34,30.77],[3.51,30.83],[3.51,30.83],[3.78,31.25],[3.56,31.88],
+    [3.79,32.69],[3.79,33.39],[4.25,34.01],[3.56,34.48],[3.05,34.6],[1.91,35.04],
+    [1.18,34.67],[0.52,34.18],[0.11,33.89],[-0.95,33.9],
+  ],
+);
+
+// Lesotho
+const _cGeo162 = _Continent(
+  bbox: _BBox(-30.65, -28.65, 27.0, 29.33),
+  polygon: [
+    [-28.96,28.98],[-29.26,29.33],[-29.74,29.02],[-30.07,28.85],[-30.23,28.29],[-30.55,28.11],
+    [-30.65,27.75],[-29.88,27.0],[-29.24,27.53],[-28.85,28.07],[-28.65,28.54],[-28.96,28.98],
+  ],
+);
+
+// Cameroon
+const _cGeo163 = _Continent(
+  bbox: _BBox(1.73, 12.86, 8.49, 16.01),
+  polygon: [
+    [12.86,14.5],[12.22,14.89],[11.56,14.96],[10.89,14.92],[9.98,15.47],[9.99,14.91],
+    [9.92,14.63],[10.02,14.17],[9.55,13.95],[8.97,14.54],[8.8,14.98],[8.38,15.12],
+    [7.69,15.44],[7.42,15.28],[6.41,14.78],[6.23,14.54],[5.45,14.46],[5.03,14.56],
+    [4.73,14.48],[4.21,14.95],[3.85,15.04],[3.34,15.41],[3.01,15.86],[2.56,15.91],
+    [2.27,16.01],[1.73,15.94],[1.96,15.15],[2.23,14.34],[2.27,13.08],[2.32,12.95],
+    [2.19,12.36],[2.33,11.75],[2.26,11.28],[2.28,9.65],[3.07,9.8],[3.73,9.4],
+    [3.9,8.95],[4.35,8.74],[4.5,8.49],[4.77,8.5],[5.48,8.76],[6.44,9.23],
+    [6.45,9.52],[7.04,10.12],[7.06,10.5],[6.64,11.06],[6.98,11.75],[7.4,11.84],
+    [7.8,12.06],[8.31,12.22],[8.72,12.75],[9.42,12.96],[9.64,13.17],[10.16,13.31],
+    [10.8,13.57],[11.57,14.42],[11.9,14.47],[12.09,14.58],[12.48,14.18],[12.8,14.21],
+    [12.86,14.5],
+  ],
+);
+
+// Gabon
+const _cGeo164 = _Continent(
+  bbox: _BBox(-3.98, 2.33, 8.8, 14.43),
+  polygon: [
+    [2.26,11.28],[2.33,11.75],[2.19,12.36],[2.32,12.95],[2.27,13.08],[1.83,13.0],
+    [1.31,13.28],[1.4,14.03],[1.2,14.28],[0.04,13.84],[-0.55,14.32],[-1.33,14.43],
+    [-2.0,14.3],[-2.47,13.99],[-2.43,13.11],[-1.95,12.58],[-2.39,12.5],[-2.51,11.82],
+    [-2.77,11.48],[-3.43,11.86],[-3.98,11.09],[-2.97,10.07],[-2.14,9.41],[-1.11,8.8],
+    [-0.78,8.83],[-0.46,9.05],[0.27,9.29],[1.01,9.49],[1.07,9.83],[1.06,11.29],
+    [2.26,11.28],
+  ],
+);
+
+// Niger
+const _cGeo165 = _Continent(
+  bbox: _BBox(11.66, 23.47, 0.3, 15.9),
+  polygon: [
+    [22.86,14.85],[21.31,15.1],[21.05,15.47],[20.73,15.49],[20.39,15.9],[19.96,15.69],
+    [17.93,15.3],[16.63,15.25],[15.68,13.97],[14.37,13.54],[14.0,13.96],[13.35,13.95],
+    [13.33,14.6],[12.86,14.5],[12.8,14.21],[12.48,14.18],[12.46,14.0],[13.56,13.32],
+    [13.6,13.08],[13.04,12.3],[13.33,11.53],[13.39,10.99],[13.25,10.7],[13.28,10.11],
+    [12.85,9.52],[12.83,9.01],[13.34,7.8],[13.1,7.33],[13.12,6.82],[13.49,6.45],
+    [13.87,5.44],[13.75,4.37],[13.53,4.11],[12.96,3.97],[12.55,3.68],[11.66,3.61],
+    [12.24,2.85],[12.23,2.49],[11.94,2.15],[12.63,2.18],[12.85,1.02],[13.34,0.99],
+    [13.99,0.43],[14.44,0.3],[14.93,0.37],[14.97,1.02],[15.32,1.39],[15.41,2.75],
+    [15.57,3.64],[16.18,3.72],[16.85,4.27],[19.16,4.27],[19.6,5.68],[21.57,8.57],
+    [23.47,12.0],[23.04,13.58],[22.49,14.14],[22.86,14.85],
+  ],
+);
+
+// Burkina Faso
+const _cGeo166 = _Continent(
+  bbox: _BBox(9.61, 15.12, -5.47, 2.18),
+  polygon: [
+    [10.37,-5.4],[10.95,-5.47],[11.38,-5.2],[11.71,-5.22],[12.54,-4.43],[13.23,-4.28],
+    [13.47,-4.01],[13.34,-3.52],[13.54,-3.1],[13.8,-2.97],[14.25,-2.19],[14.56,-2.0],
+    [14.97,-1.07],[15.12,-0.52],[14.92,-0.27],[14.93,0.37],[14.44,0.3],[13.99,0.43],
+    [13.34,0.99],[12.85,1.02],[12.63,2.18],[11.94,2.15],[11.64,1.94],[11.55,1.45],
+    [11.11,1.24],[11.0,0.9],[11.02,0.02],[11.1,-0.44],[10.94,-0.76],[11.01,-1.2],
+    [10.96,-2.94],[10.4,-2.96],[9.64,-2.83],[9.9,-3.51],[9.86,-3.98],[9.61,-4.33],
+    [9.82,-4.78],[10.15,-4.95],[10.37,-5.4],
+  ],
+);
+
+// Togo
+const _cGeo167 = _Continent(
+  bbox: _BBox(5.93, 11.02, -0.05, 1.87),
+  polygon: [
+    [11.0,0.9],[10.47,0.77],[10.18,1.08],[9.83,1.43],[9.33,1.46],[9.13,1.66],
+    [6.83,1.62],[6.14,1.87],[5.93,1.06],[6.28,0.84],[6.91,0.57],[7.41,0.49],
+    [8.31,0.71],[8.68,0.46],[9.47,0.37],[10.19,0.37],[10.71,-0.05],[11.02,0.02],
+    [11.0,0.9],
+  ],
+);
+
+// Ghana
+const _cGeo168 = _Continent(
+  bbox: _BBox(4.71, 11.1, -3.24, 1.06),
+  polygon: [
+    [11.02,0.02],[10.71,-0.05],[10.19,0.37],[9.47,0.37],[8.68,0.46],[8.31,0.71],
+    [7.41,0.49],[6.91,0.57],[6.28,0.84],[5.93,1.06],[5.34,-0.51],[5.0,-1.06],
+    [4.71,-1.96],[4.99,-2.86],[5.39,-2.81],[6.25,-3.24],[7.38,-2.98],[8.22,-2.56],
+    [9.64,-2.83],[10.4,-2.96],[10.96,-2.94],[11.01,-1.2],[10.94,-0.76],[11.1,-0.44],
+    [11.02,0.02],
+  ],
+);
+
+// Guinea-Bissau
+const _cGeo169 = _Continent(
+  bbox: _BBox(11.04, 12.63, -16.68, -13.7),
+  polygon: [
+    [12.38,-16.68],[12.55,-16.15],[12.52,-15.82],[12.63,-15.55],[12.59,-13.7],[12.25,-13.72],
+    [12.14,-13.83],[11.81,-13.74],[11.68,-13.9],[11.68,-14.12],[11.51,-14.38],[11.53,-14.69],
+    [11.04,-15.13],[11.46,-15.66],[11.52,-16.09],[11.81,-16.31],[11.96,-16.31],[12.17,-16.61],
+    [12.38,-16.68],
+  ],
+);
+
+// Egypt
+const _cGeo170 = _Continent(
+  bbox: _BBox(22, 31.59, 24.7, 36.87),
+  polygon: [
+    [22,36.87],[22,32.9],[22,29.02],[22,25],[25.68,25],[29.24,25],
+    [30.04,24.7],[30.66,24.96],[31.09,24.8],[31.57,25.16],[31.59,26.5],[31.32,27.46],
+    [31.03,28.45],[30.87,28.91],[31.19,29.68],[31.47,30.1],[31.56,30.98],[31.43,31.69],
+    [30.93,31.96],[31.26,32.19],[31.02,32.99],[30.97,33.77],[31.22,34.27],[31.22,34.27],
+    [29.76,34.82],[29.5,34.92],[29.1,34.64],[28.34,34.43],[27.82,34.15],[27.65,33.92],
+    [27.97,33.59],[28.42,33.14],[29.85,32.42],[29.76,32.32],[28.71,32.73],[27.7,33.35],
+    [26.14,34.1],[25.6,34.47],[25.03,34.8],[23.93,35.69],[23.75,35.49],[23.1,35.53],
+    [22.2,36.69],[22,36.87],
+  ],
+);
+
+// Mauritania
+const _cGeo171 = _Continent(
+  bbox: _BBox(14.62, 27.4, -17.06, -4.92),
+  polygon: [
+    [21.0,-17.06],[21.33,-16.85],[21.33,-12.93],[22.77,-13.12],[23.28,-12.87],[23.37,-11.94],
+    [25.93,-11.97],[25.88,-8.69],[27.4,-8.68],[24.97,-4.92],[24.96,-6.45],[20.64,-5.97],
+    [16.33,-5.49],[16.2,-5.32],[15.5,-5.54],[15.49,-9.55],[15.26,-9.7],[15.33,-10.09],
+    [15.13,-10.65],[15.41,-11.35],[15.39,-11.67],[14.8,-11.83],[14.62,-12.17],[15.3,-12.83],
+    [16.04,-13.44],[16.3,-14.1],[16.6,-14.58],[16.59,-15.14],[16.37,-15.62],[16.46,-16.12],
+    [16.14,-16.46],[16.67,-16.55],[17.17,-16.27],[18.11,-16.15],[19.1,-16.26],[19.59,-16.38],
+    [20.09,-16.28],[20.57,-16.54],[21.0,-17.06],
+  ],
+);
+
+// Eq. Guinea
+const _cGeo172 = _Continent(
+  bbox: _BBox(1.01, 2.28, 9.31, 11.29),
+  polygon: [
+    [2.28,9.65],[2.26,11.28],[1.06,11.29],[1.07,9.83],[1.01,9.49],[1.16,9.31],
+    [2.28,9.65],
+  ],
+);
+
+// Gambia
+const _cGeo173 = _Continent(
+  bbox: _BBox(13.13, 13.88, -16.84, -13.84),
+  polygon: [
+    [13.59,-16.71],[13.62,-15.62],[13.86,-15.4],[13.88,-15.08],[13.63,-14.69],[13.63,-14.38],
+    [13.79,-14.05],[13.51,-13.84],[13.28,-14.28],[13.3,-14.71],[13.51,-15.14],[13.28,-15.51],
+    [13.27,-15.69],[13.13,-15.93],[13.15,-16.84],[13.59,-16.71],
+  ],
+);
+
+// Madagascar
+const _cGeo174 = _Continent(
+  bbox: _BBox(-25.6, -12.04, 43.25, 50.48),
+  polygon: [
+    [-12.47,49.54],[-12.9,49.81],[-13.56,50.06],[-14.76,50.22],[-15.23,50.48],[-15.71,50.38],
+    [-16.0,50.2],[-15.41,49.86],[-15.71,49.67],[-16.45,49.86],[-16.88,49.77],[-17.11,49.5],
+    [-17.95,49.44],[-19.12,49.04],[-20.5,48.55],[-22.39,47.93],[-23.78,47.55],[-24.94,47.1],
+    [-25.18,46.28],[-25.6,45.41],[-25.35,44.83],[-24.99,44.04],[-24.46,43.76],[-23.57,43.7],
+    [-22.78,43.35],[-22.06,43.25],[-21.34,43.43],[-21.16,43.89],[-20.83,43.9],[-20.07,44.37],
+    [-19.44,44.46],[-18.96,44.23],[-18.33,44.04],[-17.41,43.96],[-16.85,44.31],[-16.22,44.45],
+    [-16.18,44.94],[-15.97,45.5],[-15.79,45.87],[-15.78,46.31],[-15.21,46.88],[-14.59,47.71],
+    [-14.09,48.01],[-13.66,47.87],[-13.78,48.29],[-13.09,48.85],[-12.49,48.86],[-12.04,49.19],
+    [-12.47,49.54],
+  ],
+);
+
+// France
+const _cGeo175 = _Continent(
+  bbox: _BBox(2.05, 5.76, -54.52, -51.66),
+  polygon: [
+    [4.16,-51.66],[3.24,-52.25],[2.5,-52.56],[2.12,-52.94],[2.05,-53.42],[2.33,-53.55],
+    [2.38,-53.78],[2.11,-54.09],[2.31,-54.52],[2.73,-54.27],[3.19,-54.18],[3.62,-54.01],
+    [4.21,-54.4],[4.9,-54.48],[5.76,-53.96],[5.65,-53.62],[5.41,-52.88],[4.57,-51.82],
+    [4.16,-51.66],
+  ],
+);
+
+// France
+const _cGeo176 = _Continent(
+  bbox: _BBox(42.34, 51.15, -4.59, 8.1),
+  polygon: [
+    [49.46,6.19],[49.2,6.66],[49.02,8.1],[48.33,7.59],[47.62,7.47],[47.45,7.19],
+    [47.54,6.74],[47.29,6.77],[46.73,6.04],[46.27,6.02],[46.43,6.5],[45.99,6.84],
+    [45.71,6.8],[45.33,7.1],[45.03,6.75],[44.25,7.01],[44.13,7.55],[43.69,7.44],
+    [43.13,6.53],[43.4,4.56],[43.08,3.1],[42.47,2.99],[42.34,1.83],[42.8,0.7],
+    [42.58,0.34],[43.03,-1.5],[43.42,-1.9],[44.02,-1.38],[46.01,-1.19],[47.06,-2.23],
+    [47.57,-2.96],[47.95,-4.49],[48.68,-4.59],[48.9,-3.3],[48.64,-1.62],[49.78,-1.93],
+    [49.35,-0.99],[50.13,1.34],[50.95,1.64],[51.15,2.51],[50.8,2.66],[50.78,3.12],
+    [50.38,3.59],[49.91,4.29],[49.99,4.8],[49.53,5.67],[49.44,5.9],[49.46,6.19],
+  ],
+);
+
+// France
+const _cGeo177 = _Continent(
+  bbox: _BBox(41.38, 43.01, 8.54, 9.56),
+  polygon: [
+    [42.63,8.75],[43.01,9.39],[42.15,9.56],[41.38,9.23],[41.58,8.78],[42.26,8.54],
+    [42.63,8.75],
+  ],
+);
+
+// Ukraine
+const _cGeo178 = _Continent(
+  bbox: _BBox(45.29, 52.34, 22.09, 40.08),
+  polygon: [
+    [52.1,31.79],[52.06,32.16],[52.29,32.41],[52.24,32.72],[52.34,33.75],[51.77,34.39],
+    [51.57,34.14],[51.21,35.02],[50.77,35.38],[50.58,35.36],[50.23,36.63],[50.38,37.39],
+    [49.92,38.01],[49.6,40.07],[49.31,40.08],[48.78,39.67],[48.23,39.9],[47.9,39.74],
+    [47.83,38.77],[47.1,38.22],[47.02,37.43],[46.7,36.76],[46.65,35.82],[46.27,34.96],
+    [45.74,35.01],[45.97,34.73],[46.01,34.41],[46.22,33.7],[45.97,33.44],[46.08,33.3],
+    [46.33,31.74],[46.58,30.75],[46.03,30.38],[45.29,29.6],[45.46,29.15],[45.3,28.68],
+    [45.49,28.23],[45.94,28.66],[46.26,28.93],[46.44,28.86],[46.52,29.07],[46.38,29.17],
+    [46.35,29.76],[46.42,30.02],[46.67,29.91],[46.93,29.56],[47.35,29.42],[47.51,29.05],
+    [47.85,29.12],[48.12,28.67],[48.47,27.52],[48.37,26.86],[48.22,26.62],[48.22,26.2],
+    [47.99,25.95],[47.89,25.21],[47.98,24.4],[47.99,23.76],[48.1,23.14],[47.88,22.71],
+    [48.15,22.64],[48.42,22.09],[49.09,22.56],[49.03,22.78],[49.48,22.52],[50.31,23.43],
+    [50.42,23.92],[50.71,24.03],[51.62,24.01],[51.89,24.55],[51.91,25.33],[51.83,26.34],
+    [51.59,27.45],[51.57,28.24],[51.6,28.99],[51.37,29.25],[51.42,30.16],[51.32,30.56],
+    [51.82,30.62],[52.04,30.93],[52.1,31.79],
+  ],
+);
+
+// Belarus
+const _cGeo179 = _Continent(
+  bbox: _BBox(51.32, 56.17, 23.2, 32.69),
+  polygon: [
+    [56.17,28.18],[55.92,29.23],[55.67,29.37],[55.79,29.9],[55.55,30.87],[55.08,30.97],
+    [54.81,30.76],[54.16,31.38],[53.97,31.79],[53.79,31.73],[53.62,32.41],[53.35,32.69],
+    [53.13,32.3],[53.17,31.5],[53.07,31.31],[52.74,31.54],[52.1,31.79],[52.1,31.79],
+    [52.04,30.93],[51.82,30.62],[51.32,30.56],[51.42,30.16],[51.37,29.25],[51.6,28.99],
+    [51.43,28.62],[51.57,28.24],[51.59,27.45],[51.83,26.34],[51.91,25.33],[51.89,24.55],
+    [51.62,24.01],[51.58,23.53],[52.02,23.51],[52.49,23.2],[52.69,23.8],[53.09,23.8],
+    [53.47,23.53],[53.91,23.48],[53.91,24.45],[54.28,25.54],[54.85,25.77],[55.17,26.59],
+    [55.62,26.49],[55.78,27.1],[56.17,28.18],
+  ],
+);
+
+// Lithuania
+const _cGeo180 = _Continent(
+  bbox: _BBox(53.91, 56.37, 21.06, 26.59),
+  polygon: [
+    [55.62,26.49],[55.17,26.59],[54.85,25.77],[54.28,25.54],[53.91,24.45],[53.91,23.48],
+    [54.22,23.24],[54.33,22.73],[54.58,22.65],[54.86,22.76],[55.02,22.32],[55.19,21.27],
+    [56.03,21.06],[56.34,22.2],[56.27,23.88],[56.37,24.86],[56.16,25.0],[56.1,25.53],
+    [55.62,26.49],
+  ],
+);
+
+// Russia
+const _cGeo181 = _Continent(
+  bbox: _BBox(41.15, 77.7, 27.29, 180),
+  polygon: [
+    [46.4,49.1],[42.99,47.49],[41.83,46.69],[42.74,43.76],[44.28,38.68],[47.04,39.15],
+    [48.23,39.9],[49.92,38.01],[51.26,34.22],[52.06,32.16],[53.13,32.3],[54.16,31.38],
+    [55.92,29.23],[58.72,27.42],[60.5,28.07],[64.2,30.44],[69.06,28.59],[69.3,33.78],
+    [66.0,38.38],[64.11,36.23],[64.76,40.44],[66.76,44.53],[67.57,45.56],[68.86,53.72],
+    [68.47,57.32],[69.55,63.5],[69.45,66.93],[72.84,69.2],[70.39,72.79],[66.53,72.82],
+    [69.07,73.84],[72.83,74.66],[72.27,77.58],[73.81,84.66],[75.64,90.26],[76.43,100.76],
+    [76.97,106.97],[75.85,114.13],[73.79,112.12],[73.12,119.02],[72.4,129.05],[71.39,133.86],
+    [72.85,140.47],[70.45,159.83],[69.47,165.94],[69.82,173.64],[64.53,178.71],[62.57,179.49],
+    [60.34,170.7],[59.87,163.54],[56.12,162.13],[52.96,158.53],[56.77,155.91],[61.14,163.67],
+    [61.77,159.3],[59.5,151.34],[54.73,135.13],[54.19,139.9],[47.0,138.55],[42.8,132.91],
+    [42.22,130.78],[44.11,131.29],[47.58,134.5],[49.44,129.4],[52.79,125.95],[52.52,120.73],
+    [49.89,116.68],[49.38,111.58],[50.41,105.89],[51.63,99.98],[50.01,94.82],[49.47,88.81],
+    [50.31,84.42],[53.4,77.8],[54.04,73.51],[54.6,65.67],[52.45,60.93],[50.55,59.64],
+    [51.69,50.77],[48.39,46.47],[46.4,49.1],
+  ],
+);
+
+// Russia
+const _cGeo182 = _Continent(
+  bbox: _BBox(78.76, 81.25, 91.18, 100.19),
+  polygon: [
+    [81.02,93.78],[81.25,95.94],[80.75,97.88],[79.78,100.19],[78.88,99.94],[78.76,97.76],
+    [79.04,94.97],[79.43,93.31],[80.14,92.55],[80.34,91.18],[81.02,93.78],
+  ],
+);
+
+// Russia
+const _cGeo183 = _Continent(
+  bbox: _BBox(77.92, 79.35, 99.44, 105.37),
+  polygon: [
+    [79.28,102.84],[78.71,105.37],[78.31,105.08],[77.92,99.44],[79.23,101.26],[79.35,102.09],
+    [79.28,102.84],
+  ],
+);
+
+// Russia
+const _cGeo184 = _Continent(
+  bbox: _BBox(74.61, 76.14, 136.97, 145.09),
+  polygon: [
+    [76.14,138.83],[76.09,141.47],[75.56,145.09],[74.82,144.3],[74.85,140.61],[74.61,138.96],
+    [75.26,136.97],[75.95,137.51],[76.14,138.83],
+  ],
+);
+
+// Russia
+const _cGeo185 = _Continent(
+  bbox: _BBox(74.69, 75.5, 146.12, 150.73),
+  polygon: [
+    [75.35,148.22],[75.08,150.73],[74.69,149.58],[74.78,147.98],[75.17,146.12],[75.5,146.36],
+    [75.35,148.22],
+  ],
+);
+
+// Russia
+const _cGeo186 = _Continent(
+  bbox: _BBox(73.21, 73.86, 139.86, 143.6),
+  polygon: [
+    [73.37,139.86],[73.77,140.81],[73.86,142.06],[73.48,143.48],[73.21,143.6],[73.21,142.09],
+    [73.32,140.04],[73.37,139.86],
+  ],
+);
+
+// Russia
+const _cGeo187 = _Continent(
+  bbox: _BBox(80.01, 80.92, 44.85, 51.52),
+  polygon: [
+    [80.59,44.85],[80.77,46.8],[80.78,48.32],[80.51,48.52],[80.75,49.1],[80.92,50.04],
+    [80.7,51.52],[80.55,51.14],[80.42,49.79],[80.34,48.89],[80.18,48.75],[80.01,47.59],
+    [80.25,46.5],[80.56,47.07],[80.59,44.85],
+  ],
+);
+
+// Russia
+const _cGeo188 = _Continent(
+  bbox: _BBox(54.31, 55.19, 19.66, 22.76),
+  polygon: [
+    [54.33,22.73],[54.31,20.89],[54.43,19.66],[54.87,19.89],[55.19,21.27],[55.02,22.32],
+    [54.86,22.76],[54.58,22.65],[54.33,22.73],
+  ],
+);
+
+// Russia
+const _cGeo189 = _Continent(
+  bbox: _BBox(70.63, 76.94, 51.46, 68.85),
+  polygon: [
+    [73.75,53.51],[74.63,55.9],[75.08,55.63],[75.61,57.87],[76.25,61.17],[76.44,64.5],
+    [76.81,66.21],[76.94,68.16],[76.54,68.85],[76.23,68.18],[75.74,64.64],[75.26,61.58],
+    [74.31,58.48],[73.33,56.99],[72.37,55.42],[71.54,55.62],[70.72,57.54],[70.63,56.94],
+    [70.76,53.68],[71.21,53.41],[71.47,51.6],[72.01,51.46],[72.23,52.48],[72.77,52.44],
+    [73.63,54.43],[73.75,53.51],
+  ],
+);
+
+// Russia
+const _cGeo190 = _Continent(
+  bbox: _BBox(45.97, 54.37, 141.59, 144.65),
+  polygon: [
+    [53.7,142.91],[52.74,143.26],[51.76,143.24],[50.75,143.65],[48.98,144.65],[49.31,143.17],
+    [47.86,142.56],[46.84,143.53],[46.14,143.51],[46.74,142.75],[45.97,142.09],[46.81,141.91],
+    [47.78,142.02],[48.86,141.9],[49.62,142.14],[50.95,142.18],[51.94,141.59],[53.3,141.68],
+    [53.76,142.61],[54.23,142.21],[54.37,142.65],[53.7,142.91],
+  ],
+);
+
+// Russia
+const _cGeo191 = _Continent(
+  bbox: _BBox(64.25, 68.96, -180, -169.9),
+  polygon: [
+    [67.21,-174.93],[66.58,-175.01],[66.34,-174.34],[67.06,-174.57],[66.91,-171.86],[65.98,-169.9],
+    [65.54,-170.89],[65.44,-172.53],[64.46,-172.56],[64.25,-172.96],[64.28,-173.89],[64.63,-174.65],
+    [64.92,-175.98],[65.36,-176.21],[65.52,-177.22],[65.39,-178.36],[65.74,-178.9],[66.11,-178.69],
+    [65.87,-179.88],[65.4,-179.43],[64.98,-180],[68.96,-180],[68.2,-177.55],[67.21,-174.93],
+  ],
+);
+
+// Russia
+const _cGeo192 = _Continent(
+  bbox: _BBox(70.83, 71.56, -180, -177.58),
+  polygon: [
+    [70.89,-178.69],[70.83,-180],[71.52,-180],[71.56,-179.87],[71.56,-179.02],[71.27,-177.58],
+    [71.13,-177.66],[70.89,-178.69],
+  ],
+);
+
+// Russia
+const _cGeo193 = _Continent(
+  bbox: _BBox(44.36, 46.22, 32.45, 36.53),
+  polygon: [
+    [45.97,33.44],[46.22,33.7],[46.01,34.41],[45.97,34.73],[45.77,34.86],[45.74,35.01],
+    [45.65,35.02],[45.41,35.51],[45.47,36.53],[45.11,36.33],[44.94,35.24],[44.36,33.88],
+    [44.56,33.33],[45.03,33.55],[45.33,32.45],[45.52,32.63],[45.85,33.59],[45.97,33.44],
+  ],
+);
+
+// Czechia
+const _cGeo194 = _Continent(
+  bbox: _BBox(48.56, 51.12, 12.24, 18.85),
+  polygon: [
+    [51.11,15.02],[50.78,15.49],[50.7,16.24],[50.42,16.18],[50.22,16.72],[50.47,16.87],
+    [50.36,17.55],[50.05,17.65],[49.99,18.39],[49.5,18.85],[49.5,18.55],[49.32,18.4],
+    [49.27,18.17],[49.04,18.1],[49.0,17.91],[48.9,17.89],[48.8,17.55],[48.82,17.1],
+    [48.6,16.96],[48.79,16.5],[48.73,16.03],[49.04,15.25],[48.96,14.9],[48.56,14.34],
+    [48.88,13.6],[49.31,13.03],[49.55,12.52],[49.97,12.42],[50.27,12.24],[50.48,12.97],
+    [50.73,13.34],[50.93,14.06],[51.12,14.31],[51.0,14.57],[51.11,15.02],
+  ],
+);
+
+// Germany
+const _cGeo195 = _Continent(
+  bbox: _BBox(47.3, 54.98, 5.99, 15.02),
+  polygon: [
+    [53.76,14.12],[53.25,14.35],[52.98,14.07],[52.62,14.44],[52.09,14.69],[51.75,14.61],
+    [51.11,15.02],[51.0,14.57],[51.12,14.31],[50.93,14.06],[50.73,13.34],[50.48,12.97],
+    [50.27,12.24],[49.97,12.42],[49.55,12.52],[49.31,13.03],[48.88,13.6],[48.42,13.24],
+    [48.29,12.88],[47.64,13.03],[47.47,12.93],[47.67,12.62],[47.7,12.14],[47.52,11.43],
+    [47.57,10.54],[47.3,10.4],[47.58,9.9],[47.53,9.59],[47.83,8.52],[47.61,8.32],
+    [47.62,7.47],[48.33,7.59],[49.02,8.1],[49.2,6.66],[49.46,6.19],[49.9,6.24],
+    [50.13,6.04],[50.8,6.16],[51.85,5.99],[51.85,6.59],[52.23,6.84],[53.14,7.09],
+    [53.48,6.91],[53.69,7.1],[53.75,7.94],[53.53,8.12],[54.02,8.8],[54.4,8.57],
+    [54.96,8.53],[54.83,9.28],[54.98,9.92],[54.6,9.94],[54.36,10.95],[54.01,10.94],
+    [54.2,11.96],[54.47,12.52],[54.08,13.65],[53.76,14.12],
+  ],
+);
+
+// Estonia
+const _cGeo196 = _Continent(
+  bbox: _BBox(57.47, 59.61, 23.34, 28.13),
+  polygon: [
+    [59.48,27.98],[59.48,27.98],[59.3,28.13],[58.72,27.42],[57.79,27.72],[57.47,27.29],
+    [57.48,26.46],[57.85,25.6],[57.97,25.16],[57.79,24.31],[58.38,24.43],[58.26,24.06],
+    [58.61,23.43],[59.19,23.34],[59.47,24.6],[59.61,25.86],[59.45,26.95],[59.48,27.98],
+    [59.48,27.98],
+  ],
+);
+
+// Latvia
+const _cGeo197 = _Continent(
+  bbox: _BBox(55.62, 57.97, 21.06, 28.18),
+  polygon: [
+    [57.47,27.29],[57.24,27.77],[56.76,27.86],[56.17,28.18],[55.78,27.1],[55.62,26.49],
+    [56.1,25.53],[56.16,25.0],[56.37,24.86],[56.27,23.88],[56.34,22.2],[56.03,21.06],
+    [56.78,21.09],[57.41,21.58],[57.75,22.52],[57.01,23.32],[57.03,24.12],[57.79,24.31],
+    [57.97,25.16],[57.85,25.6],[57.48,26.46],[57.47,27.29],
+  ],
+);
+
+// Norway
+const _cGeo198 = _Continent(
+  bbox: _BBox(76.77, 80.05, 10.44, 21.54),
+  polygon: [
+    [79.67,15.14],[80.02,15.52],[80.05,16.99],[79.7,18.25],[78.96,21.54],[78.56,19.03],
+    [77.83,18.47],[77.64,17.59],[76.81,17.12],[76.77,15.91],[77.38,13.76],[77.74,14.67],
+    [78.02,13.17],[78.87,11.22],[79.65,10.44],[80.01,13.17],[79.66,13.72],[79.67,15.14],
+  ],
+);
+
+// Norway
+const _cGeo199 = _Continent(
+  bbox: _BBox(58.08, 71.19, 4.99, 31.29),
+  polygon: [
+    [69.56,31.1],[69.16,29.4],[69.06,28.59],[69.77,29.02],[70.16,27.73],[69.83,26.18],
+    [69.09,25.69],[68.65,24.74],[68.89,23.66],[68.84,22.36],[69.37,21.24],[69.11,20.65],
+    [69.07,20.03],[68.41,19.88],[68.57,17.99],[68.01,17.73],[68.01,16.77],[67.3,16.11],
+    [66.19,15.11],[64.79,13.56],[64.45,13.92],[64.05,13.57],[64.07,12.58],[63.13,11.93],
+    [61.8,11.99],[61.29,12.63],[60.12,12.3],[59.43,11.47],[58.86,11.03],[59.47,10.36],
+    [58.31,8.38],[58.08,7.05],[58.59,5.67],[59.66,5.31],[61.97,4.99],[62.61,5.91],
+    [63.45,8.55],[64.49,10.53],[65.88,12.36],[67.81,14.76],[68.56,16.44],[69.82,19.18],
+    [70.26,21.38],[70.2,23.02],[71.03,24.55],[70.99,26.37],[71.19,28.17],[70.45,31.29],
+    [70.19,30.01],[69.56,31.1],
+  ],
+);
+
+// Norway
+const _cGeo200 = _Continent(
+  bbox: _BBox(79.4, 80.66, 17.37, 27.41),
+  polygon: [
+    [80.06,27.41],[79.52,25.92],[79.4,23.02],[79.57,20.08],[79.84,19.9],[79.86,18.46],
+    [80.32,17.37],[80.6,20.46],[80.36,21.91],[80.66,22.92],[80.41,25.45],[80.06,27.41],
+  ],
+);
+
+// Norway
+const _cGeo201 = _Continent(
+  bbox: _BBox(77.44, 78.45, 20.73, 24.72),
+  polygon: [
+    [77.85,24.72],[77.44,22.49],[77.68,20.73],[77.94,21.42],[78.25,20.81],[78.45,22.88],
+    [78.08,23.28],[77.85,24.72],
+  ],
+);
+
+// Sweden
+const _cGeo202 = _Continent(
+  bbox: _BBox(55.36, 69.11, 11.03, 23.9),
+  polygon: [
+    [58.86,11.03],[59.43,11.47],[60.12,12.3],[61.29,12.63],[61.8,11.99],[63.13,11.93],
+    [64.07,12.58],[64.05,13.57],[64.45,13.92],[64.79,13.56],[66.19,15.11],[67.3,16.11],
+    [68.01,16.77],[68.01,17.73],[68.57,17.99],[68.41,19.88],[69.07,20.03],[69.11,20.65],
+    [68.62,21.98],[67.94,23.54],[66.4,23.57],[66.01,23.9],[65.72,22.18],[65.03,21.21],
+    [64.41,21.37],[63.61,19.78],[62.75,17.85],[61.34,17.12],[60.64,17.83],[60.08,18.79],
+    [58.95,17.87],[58.72,16.83],[57.04,16.45],[56.1,15.88],[56.2,14.67],[55.41,14.1],
+    [55.36,12.94],[56.31,12.63],[57.44,11.79],[58.86,11.03],
+  ],
+);
+
+// Finland
+const _cGeo203 = _Continent(
+  bbox: _BBox(59.85, 70.16, 20.65, 31.52),
+  polygon: [
+    [69.06,28.59],[68.36,28.45],[67.7,29.98],[66.94,29.05],[65.81,30.22],[64.95,29.54],
+    [64.2,30.44],[63.55,30.04],[62.87,31.52],[62.36,31.14],[61.78,30.21],[60.5,28.07],
+    [60.5,28.07],[60.5,28.07],[60.42,26.26],[60.06,24.5],[59.85,22.87],[60.39,22.29],
+    [60.72,21.32],[61.71,21.54],[62.61,21.06],[63.19,21.54],[63.82,22.44],[64.9,24.73],
+    [65.11,25.4],[65.53,25.29],[66.01,23.9],[66.4,23.57],[67.94,23.54],[68.62,21.98],
+    [69.11,20.65],[69.37,21.24],[68.84,22.36],[68.89,23.66],[68.65,24.74],[69.09,25.69],
+    [69.83,26.18],[70.16,27.73],[69.77,29.02],[69.06,28.59],
+  ],
+);
+
+// Belgium
+const _cGeo204 = _Continent(
+  bbox: _BBox(49.53, 51.48, 2.51, 6.16),
+  polygon: [
+    [50.8,6.16],[50.13,6.04],[50.09,5.78],[49.53,5.67],[49.99,4.8],[49.91,4.29],
+    [50.38,3.59],[50.78,3.12],[50.8,2.66],[51.15,2.51],[51.35,3.31],[51.35,3.32],
+    [51.35,3.31],[51.27,4.05],[51.48,4.97],[51.04,5.61],[50.8,6.16],
+  ],
+);
+
+// North Macedonia
+const _cGeo205 = _Continent(
+  bbox: _BBox(40.84, 42.32, 20.46, 22.95),
+  polygon: [
+    [42.32,22.38],[42.0,22.88],[41.34,22.95],[41.3,22.76],[41.13,22.6],[41.15,22.06],
+    [40.93,21.67],[40.84,21.02],[41.09,20.61],[41.52,20.46],[41.86,20.59],[41.86,20.59],
+    [41.85,20.72],[42.05,20.76],[42.21,21.35],[42.25,21.58],[42.3,21.92],[42.32,22.38],
+  ],
+);
+
+// Albania
+const _cGeo206 = _Continent(
+  bbox: _BBox(39.62, 42.69, 19.3, 21.02),
+  polygon: [
+    [40.84,21.02],[40.58,21.0],[40.43,20.67],[40.11,20.62],[39.62,20.15],[39.69,19.98],
+    [39.92,19.96],[40.25,19.41],[40.73,19.32],[41.41,19.4],[41.72,19.54],[41.88,19.37],
+    [41.88,19.37],[42.2,19.3],[42.69,19.74],[42.5,19.8],[42.59,20.07],[42.32,20.28],
+    [42.22,20.52],[41.86,20.59],[41.86,20.59],[41.52,20.46],[41.09,20.61],[40.84,21.02],
+  ],
+);
+
+// Kosovo
+const _cGeo207 = _Continent(
+  bbox: _BBox(41.85, 43.27, 20.07, 21.78),
+  polygon: [
+    [41.86,20.59],[42.22,20.52],[42.32,20.28],[42.59,20.07],[42.81,20.26],[42.88,20.5],
+    [43.22,20.64],[43.27,20.81],[43.13,20.96],[43.07,21.14],[42.91,21.27],[42.86,21.44],
+    [42.68,21.63],[42.68,21.78],[42.44,21.66],[42.32,21.54],[42.25,21.58],[42.21,21.35],
+    [42.05,20.76],[41.85,20.72],[41.86,20.59],
+  ],
+);
+
+// Spain
+const _cGeo208 = _Continent(
+  bbox: _BBox(35.95, 43.75, -9.39, 3.04),
+  polygon: [
+    [37.1,-7.45],[37.43,-7.54],[37.8,-7.17],[38.08,-7.03],[38.37,-7.37],[39.03,-7.1],
+    [39.63,-7.5],[39.71,-7.07],[40.18,-7.03],[40.33,-6.86],[41.11,-6.85],[41.38,-6.39],
+    [41.88,-6.67],[41.92,-7.25],[41.79,-7.42],[41.79,-8.01],[42.28,-8.26],[42.13,-8.67],
+    [41.88,-9.03],[42.59,-8.98],[43.03,-9.39],[43.75,-7.98],[43.57,-6.75],[43.57,-5.41],
+    [43.4,-4.35],[43.46,-3.52],[43.42,-1.9],[43.03,-1.5],[42.58,0.34],[42.8,0.7],
+    [42.34,1.83],[42.47,2.99],[41.89,3.04],[41.23,2.09],[41.01,0.81],[40.68,0.72],
+    [40.12,0.11],[39.31,-0.28],[38.74,0.11],[38.29,-0.47],[37.64,-0.68],[37.44,-1.44],
+    [36.67,-2.15],[36.66,-3.42],[36.68,-4.37],[36.32,-5.0],[35.95,-5.38],[36.03,-5.87],
+    [36.37,-6.24],[36.94,-6.52],[37.1,-7.45],
+  ],
+);
+
+// Denmark
+const _cGeo209 = _Continent(
+  bbox: _BBox(54.83, 57.73, 8.09, 10.91),
+  polygon: [
+    [54.98,9.92],[54.83,9.28],[54.96,8.53],[55.52,8.12],[56.54,8.09],[56.81,8.26],
+    [57.11,8.54],[57.17,9.42],[57.45,9.78],[57.73,10.58],[57.22,10.55],[56.89,10.25],
+    [56.61,10.37],[56.46,10.91],[56.08,10.67],[56.19,10.37],[55.47,9.65],[54.98,9.92],
+  ],
+);
+
+// Denmark
+const _cGeo210 = _Continent(
+  bbox: _BBox(54.8, 56.11, 10.9, 12.69),
+  polygon: [
+    [56.11,12.37],[55.61,12.69],[54.8,12.09],[55.36,11.04],[55.78,10.9],[56.11,12.37],
+  ],
+);
+
+// Romania
+const _cGeo211 = _Continent(
+  bbox: _BBox(43.69, 48.22, 20.22, 29.63),
+  polygon: [
+    [45.49,28.23],[45.3,28.68],[45.46,29.15],[45.29,29.6],[45.04,29.63],[44.82,29.14],
+    [44.91,28.84],[43.71,28.56],[43.81,27.97],[44.18,27.24],[43.94,26.07],[43.69,25.57],
+    [43.74,24.1],[43.9,23.33],[43.82,22.94],[44.23,22.66],[44.41,22.47],[44.58,22.71],
+    [44.7,22.46],[44.48,22.15],[44.77,21.56],[45.18,21.48],[45.42,20.87],[45.73,20.76],
+    [46.13,20.22],[46.32,21.02],[46.99,21.63],[47.67,22.1],[47.88,22.71],[48.1,23.14],
+    [47.99,23.76],[47.98,24.4],[47.74,24.87],[47.89,25.21],[47.99,25.95],[48.22,26.2],
+    [48.22,26.62],[48.12,26.92],[47.83,27.23],[47.41,27.55],[46.81,28.13],[46.37,28.16],
+    [45.94,28.05],[45.49,28.23],
+  ],
+);
+
+// Hungary
+const _cGeo212 = _Continent(
+  bbox: _BBox(45.76, 48.62, 16.2, 22.71),
+  polygon: [
+    [48.42,22.09],[48.15,22.64],[47.88,22.71],[47.67,22.1],[46.99,21.63],[46.32,21.02],
+    [46.13,20.22],[46.17,19.6],[45.91,18.83],[45.91,18.83],[45.76,18.46],[45.95,17.63],
+    [46.38,16.88],[46.5,16.56],[46.84,16.37],[46.85,16.2],[47.5,16.53],[47.71,16.34],
+    [47.71,16.9],[48.12,16.98],[47.87,17.49],[47.76,17.86],[47.88,18.7],[48.08,18.78],
+    [48.11,19.17],[48.27,19.66],[48.2,19.77],[48.33,20.24],[48.56,20.47],[48.62,20.8],
+    [48.32,21.87],[48.42,22.09],
+  ],
+);
+
+// Slovakia
+const _cGeo213 = _Continent(
+  bbox: _BBox(47.76, 49.57, 16.88, 22.56),
+  polygon: [
+    [49.09,22.56],[48.83,22.28],[48.42,22.09],[48.32,21.87],[48.62,20.8],[48.56,20.47],
+    [48.33,20.24],[48.2,19.77],[48.27,19.66],[48.11,19.17],[48.08,18.78],[47.88,18.7],
+    [47.76,17.86],[47.87,17.49],[48.12,16.98],[48.47,16.88],[48.6,16.96],[48.82,17.1],
+    [48.8,17.55],[48.9,17.89],[49.0,17.91],[49.04,18.1],[49.27,18.17],[49.32,18.4],
+    [49.5,18.55],[49.5,18.85],[49.44,18.91],[49.57,19.32],[49.22,19.83],[49.43,20.42],
+    [49.33,20.89],[49.47,21.61],[49.09,22.56],
+  ],
+);
+
+// Poland
+const _cGeo214 = _Continent(
+  bbox: _BBox(49.03, 54.85, 14.07, 24.03),
+  polygon: [
+    [53.91,23.48],[53.47,23.53],[53.09,23.8],[52.69,23.8],[52.49,23.2],[52.02,23.51],
+    [51.58,23.53],[50.71,24.03],[50.42,23.92],[50.31,23.43],[49.48,22.52],[49.03,22.78],
+    [49.09,22.56],[49.47,21.61],[49.33,20.89],[49.43,20.42],[49.22,19.83],[49.57,19.32],
+    [49.44,18.91],[49.5,18.85],[49.99,18.39],[50.05,17.65],[50.36,17.55],[50.47,16.87],
+    [50.22,16.72],[50.42,16.18],[50.7,16.24],[50.78,15.49],[51.11,15.02],[51.75,14.61],
+    [52.09,14.69],[52.62,14.44],[52.98,14.07],[53.25,14.35],[53.76,14.12],[54.05,14.8],
+    [54.51,16.36],[54.85,17.62],[54.68,18.62],[54.44,18.7],[54.43,19.66],[54.31,20.89],
+    [54.33,22.73],[54.22,23.24],[53.91,23.48],
+  ],
+);
+
+// Ireland
+const _cGeo215 = _Continent(
+  bbox: _BBox(51.67, 55.13, -9.98, -6.03),
+  polygon: [
+    [53.87,-6.2],[53.15,-6.03],[52.26,-6.79],[51.67,-8.56],[51.82,-9.98],[52.86,-9.17],
+    [53.88,-9.69],[54.66,-8.33],[55.13,-7.57],[54.6,-7.37],[54.06,-7.57],[54.07,-6.95],
+    [53.87,-6.2],
+  ],
+);
+
+// United Kingdom
+const _cGeo216 = _Continent(
+  bbox: _BBox(53.87, 55.17, -7.57, -5.66),
+  polygon: [
+    [53.87,-6.2],[54.07,-6.95],[54.06,-7.57],[54.6,-7.37],[55.13,-7.57],[55.17,-6.73],
+    [54.55,-5.66],[53.87,-6.2],
+  ],
+);
+
+// United Kingdom
+const _cGeo217 = _Continent(
+  bbox: _BBox(49.96, 58.64, -6.15, 1.68),
+  polygon: [
+    [53.4,-3.09],[53.4,-3.09],[53.98,-2.95],[54.6,-3.61],[54.62,-3.63],[54.79,-4.84],
+    [55.06,-5.08],[55.51,-4.72],[55.78,-5.05],[55.31,-5.59],[56.28,-5.64],[56.79,-6.15],
+    [57.82,-5.79],[58.63,-5.01],[58.55,-4.21],[58.64,-3.01],[57.55,-4.07],[57.69,-3.06],
+    [57.68,-1.96],[56.87,-2.22],[55.97,-3.12],[55.91,-2.09],[55.8,-2.01],[54.62,-1.11],
+    [54.46,-0.43],[53.33,0.18],[52.93,0.47],[52.74,1.68],[52.1,1.56],[51.81,1.05],
+    [51.29,1.45],[50.77,0.55],[50.77,-0.79],[50.5,-2.49],[50.7,-2.96],[50.23,-3.62],
+    [50.34,-4.54],[49.96,-5.25],[50.16,-5.78],[51.21,-4.31],[51.43,-3.41],[51.43,-3.42],
+    [51.59,-4.98],[51.99,-5.27],[52.3,-4.22],[52.84,-4.77],[53.5,-4.58],[53.4,-3.09],
+  ],
+);
+
+// Greece
+const _cGeo218 = _Continent(
+  bbox: _BBox(34.92, 35.71, 23.51, 26.29),
+  polygon: [
+    [35.3,26.29],[35.0,26.16],[34.92,24.72],[35.08,24.74],[35.28,23.51],[35.71,23.7],
+    [35.37,24.25],[35.42,25.03],[35.35,25.77],[35.18,25.75],[35.3,26.29],
+  ],
+);
+
+// Greece
+const _cGeo219 = _Continent(
+  bbox: _BBox(36.41, 41.83, 20.15, 26.6),
+  polygon: [
+    [41.34,22.95],[41.31,23.69],[41.58,24.49],[41.23,25.2],[41.33,26.11],[41.83,26.12],
+    [41.56,26.6],[40.94,26.29],[40.82,26.06],[40.85,25.45],[40.95,24.93],[40.69,23.71],
+    [40.12,24.41],[39.96,23.9],[39.96,23.34],[40.48,22.81],[40.26,22.63],[39.66,22.85],
+    [39.19,23.35],[38.97,22.97],[38.51,23.53],[38.22,24.03],[37.66,24.04],[37.92,23.12],
+    [37.41,23.41],[37.31,22.77],[36.42,23.15],[36.41,22.49],[36.84,21.67],[37.64,21.3],
+    [38.31,21.12],[38.77,20.73],[39.34,20.22],[39.62,20.15],[40.11,20.62],[40.43,20.67],
+    [40.58,21.0],[40.84,21.02],[40.93,21.67],[41.15,22.06],[41.13,22.6],[41.3,22.76],
+    [41.34,22.95],
+  ],
+);
+
+// Austria
+const _cGeo220 = _Continent(
+  bbox: _BBox(46.43, 49.04, 9.48, 16.98),
+  polygon: [
+    [48.12,16.98],[47.71,16.9],[47.71,16.34],[47.5,16.53],[46.85,16.2],[46.68,16.01],
+    [46.66,15.14],[46.43,14.63],[46.51,13.81],[46.77,12.38],[47.12,12.15],[46.94,11.16],
+    [46.75,11.05],[46.89,10.44],[46.92,9.93],[47.1,9.48],[47.35,9.63],[47.53,9.59],
+    [47.58,9.9],[47.3,10.4],[47.57,10.54],[47.52,11.43],[47.7,12.14],[47.67,12.62],
+    [47.47,12.93],[47.64,13.03],[48.29,12.88],[48.42,13.24],[48.88,13.6],[48.56,14.34],
+    [48.96,14.9],[49.04,15.25],[48.73,16.03],[48.79,16.5],[48.6,16.96],[48.47,16.88],
+    [48.12,16.98],
+  ],
+);
+
+// Italy
+const _cGeo221 = _Continent(
+  bbox: _BBox(37.91, 47.12, 6.75, 18.48),
+  polygon: [
+    [46.89,10.44],[46.75,11.05],[46.94,11.16],[47.12,12.15],[46.77,12.38],[46.51,13.81],
+    [46.02,13.7],[45.59,13.94],[45.74,13.14],[45.38,12.33],[44.89,12.38],[44.6,12.26],
+    [44.09,12.59],[43.59,13.53],[42.76,14.03],[41.96,15.14],[41.96,15.93],[41.74,16.17],
+    [41.54,15.89],[41.18,16.79],[40.88,17.52],[40.36,18.38],[40.17,18.48],[39.81,18.29],
+    [40.28,17.74],[40.44,16.87],[39.8,16.45],[39.42,17.17],[38.9,17.05],[38.84,16.64],
+    [37.99,16.1],[37.91,15.68],[38.21,15.69],[38.75,15.89],[38.96,16.11],[39.54,15.72],
+    [40.05,15.41],[40.17,15.0],[40.6,14.7],[40.79,14.06],[41.19,13.63],[41.25,12.89],
+    [41.7,12.11],[42.36,11.19],[42.93,10.51],[43.92,10.2],[44.04,9.7],[44.37,8.89],
+    [44.23,8.43],[43.77,7.85],[43.69,7.44],[44.13,7.55],[44.25,7.01],[45.03,6.75],
+    [45.33,7.1],[45.71,6.8],[45.99,6.84],[45.78,7.27],[45.82,7.76],[46.16,8.32],
+    [46.01,8.49],[46.04,8.97],[46.44,9.18],[46.31,9.92],[46.48,10.36],[46.89,10.44],
+  ],
+);
+
+// Italy
+const _cGeo222 = _Continent(
+  bbox: _BBox(36.62, 38.23, 12.43, 15.52),
+  polygon: [
+    [38.14,14.76],[38.23,15.52],[37.44,15.16],[37.13,15.31],[36.62,15.1],[37.0,14.34],
+    [37.1,13.83],[37.61,12.43],[38.13,12.57],[38.03,13.74],[38.14,14.76],
+  ],
+);
+
+// Italy
+const _cGeo223 = _Continent(
+  bbox: _BBox(38.91, 41.21, 8.16, 9.81),
+  polygon: [
+    [40.9,8.71],[41.21,9.21],[40.5,9.81],[39.18,9.67],[39.24,9.21],[38.91,8.81],
+    [39.17,8.43],[40.38,8.39],[40.95,8.16],[40.9,8.71],
+  ],
+);
+
+// Switzerland
+const _cGeo224 = _Continent(
+  bbox: _BBox(45.78, 47.83, 6.02, 10.44),
+  polygon: [
+    [47.53,9.59],[47.35,9.63],[47.1,9.48],[46.92,9.93],[46.89,10.44],[46.48,10.36],
+    [46.31,9.92],[46.44,9.18],[46.04,8.97],[46.01,8.49],[46.16,8.32],[45.82,7.76],
+    [45.78,7.27],[45.99,6.84],[46.43,6.5],[46.27,6.02],[46.73,6.04],[47.29,6.77],
+    [47.54,6.74],[47.45,7.19],[47.62,7.47],[47.61,8.32],[47.83,8.52],[47.53,9.59],
+  ],
+);
+
+// Netherlands
+const _cGeo225 = _Continent(
+  bbox: _BBox(50.8, 53.51, 3.31, 7.09),
+  polygon: [
+    [53.48,6.91],[53.14,7.09],[52.23,6.84],[51.85,6.59],[51.85,5.99],[50.8,6.16],
+    [51.04,5.61],[51.48,4.97],[51.27,4.05],[51.35,3.31],[51.35,3.32],[51.62,3.83],
+    [53.09,4.71],[53.51,6.07],[53.48,6.91],
+  ],
+);
+
+// Serbia
+const _cGeo226 = _Continent(
+  bbox: _BBox(42.25, 46.17, 18.83, 22.99),
+  polygon: [
+    [45.91,18.83],[45.91,18.83],[46.17,19.6],[46.13,20.22],[45.73,20.76],[45.42,20.87],
+    [45.18,21.48],[44.77,21.56],[44.48,22.15],[44.7,22.46],[44.58,22.71],[44.41,22.47],
+    [44.23,22.66],[44.01,22.41],[43.64,22.5],[43.21,22.99],[42.9,22.6],[42.58,22.44],
+    [42.46,22.55],[42.32,22.38],[42.3,21.92],[42.25,21.58],[42.32,21.54],[42.44,21.66],
+    [42.68,21.78],[42.68,21.63],[42.86,21.44],[42.91,21.27],[43.07,21.14],[43.13,20.96],
+    [43.27,20.81],[43.22,20.64],[42.88,20.5],[42.81,20.26],[42.9,20.34],[43.11,19.96],
+    [43.21,19.63],[43.35,19.48],[43.52,19.22],[43.57,19.45],[44.04,19.6],[44.42,19.12],
+    [44.86,19.37],[44.86,19.01],[44.86,19.01],[45.24,19.39],[45.52,19.07],[45.91,18.83],
+  ],
+);
+
+// Croatia
+const _cGeo227 = _Continent(
+  bbox: _BBox(42.48, 46.5, 13.66, 19.39),
+  polygon: [
+    [46.5,16.56],[46.38,16.88],[45.95,17.63],[45.76,18.46],[45.91,18.83],[45.52,19.07],
+    [45.24,19.39],[44.86,19.01],[45.08,18.55],[45.07,17.86],[45.23,17.0],[45.21,16.53],
+    [45.0,16.32],[45.23,15.96],[44.82,15.75],[44.35,16.24],[44.04,16.46],[43.67,16.92],
+    [43.45,17.3],[43.03,17.67],[42.65,18.56],[42.48,18.45],[42.48,18.45],[42.85,17.51],
+    [43.21,16.93],[43.51,16.02],[44.24,15.17],[44.32,15.38],[44.74,14.92],[45.08,14.9],
+    [45.23,14.26],[44.8,13.95],[45.14,13.66],[45.48,13.68],[45.5,13.72],[45.47,14.41],
+    [45.63,14.6],[45.47,14.94],[45.45,15.33],[45.73,15.32],[45.83,15.67],[46.24,15.77],
+    [46.5,16.56],
+  ],
+);
+
+// Slovenia
+const _cGeo228 = _Continent(
+  bbox: _BBox(45.45, 46.85, 13.7, 16.56),
+  polygon: [
+    [46.51,13.81],[46.43,14.63],[46.66,15.14],[46.68,16.01],[46.85,16.2],[46.84,16.37],
+    [46.5,16.56],[46.24,15.77],[45.83,15.67],[45.73,15.32],[45.45,15.33],[45.47,14.94],
+    [45.63,14.6],[45.47,14.41],[45.5,13.72],[45.59,13.94],[46.02,13.7],[46.51,13.81],
+  ],
+);
+
+// Bulgaria
+const _cGeo229 = _Continent(
+  bbox: _BBox(41.23, 44.23, 22.38, 28.56),
+  polygon: [
+    [44.23,22.66],[43.82,22.94],[43.9,23.33],[43.74,24.1],[43.69,25.57],[43.94,26.07],
+    [44.18,27.24],[43.81,27.97],[43.71,28.56],[43.29,28.04],[42.58,27.67],[42.01,28.0],
+    [42.14,27.14],[41.83,26.12],[41.33,26.11],[41.23,25.2],[41.58,24.49],[41.31,23.69],
+    [41.34,22.95],[42.0,22.88],[42.32,22.38],[42.46,22.55],[42.58,22.44],[42.9,22.6],
+    [43.21,22.99],[43.64,22.5],[44.01,22.41],[44.23,22.66],
+  ],
+);
+
+// Montenegro
+const _cGeo230 = _Continent(
+  bbox: _BBox(41.88, 43.52, 18.45, 20.34),
+  polygon: [
+    [42.59,20.07],[42.5,19.8],[42.69,19.74],[42.2,19.3],[41.88,19.37],[41.96,19.16],
+    [42.28,18.88],[42.48,18.45],[42.65,18.56],[43.2,18.71],[43.43,19.03],[43.52,19.22],
+    [43.35,19.48],[43.21,19.63],[43.11,19.96],[42.9,20.34],[42.81,20.26],[42.59,20.07],
+  ],
+);
+
+// Bosnia and Herz.
+const _cGeo231 = _Continent(
+  bbox: _BBox(42.65, 45.23, 15.75, 19.6),
+  polygon: [
+    [42.65,18.56],[43.03,17.67],[43.45,17.3],[43.67,16.92],[44.04,16.46],[44.35,16.24],
+    [44.82,15.75],[45.23,15.96],[45.0,16.32],[45.21,16.53],[45.23,17.0],[45.07,17.86],
+    [45.08,18.55],[44.86,19.01],[44.86,19.01],[44.86,19.37],[44.42,19.12],[44.04,19.6],
+    [43.57,19.45],[43.52,19.22],[43.43,19.03],[43.2,18.71],[42.65,18.56],
+  ],
+);
+
+// Portugal
+const _cGeo232 = _Continent(
+  bbox: _BBox(36.84, 42.28, -9.53, -6.39),
+  polygon: [
+    [41.88,-9.03],[42.13,-8.67],[42.28,-8.26],[41.79,-8.01],[41.79,-7.42],[41.92,-7.25],
+    [41.88,-6.67],[41.38,-6.39],[41.11,-6.85],[40.33,-6.86],[40.18,-7.03],[39.71,-7.07],
+    [39.63,-7.5],[39.03,-7.1],[38.37,-7.37],[38.08,-7.03],[37.8,-7.17],[37.43,-7.54],
+    [37.1,-7.45],[36.84,-7.86],[36.98,-8.38],[36.87,-8.9],[37.65,-8.75],[38.27,-8.84],
+    [38.36,-9.29],[38.74,-9.53],[39.39,-9.45],[39.76,-9.05],[40.16,-8.98],[40.76,-8.77],
+    [41.18,-8.79],[41.54,-8.99],[41.88,-9.03],
+  ],
+);
+
+// Moldova
+const _cGeo233 = _Continent(
+  bbox: _BBox(45.49, 48.47, 26.62, 30.02),
+  polygon: [
+    [48.22,26.62],[48.37,26.86],[48.47,27.52],[48.16,28.26],[48.12,28.67],[47.85,29.12],
+    [47.51,29.05],[47.35,29.42],[46.93,29.56],[46.67,29.91],[46.53,29.84],[46.42,30.02],
+    [46.35,29.76],[46.38,29.17],[46.52,29.07],[46.44,28.86],[46.26,28.93],[45.94,28.66],
+    [45.6,28.49],[45.49,28.23],[45.94,28.05],[46.37,28.16],[46.81,28.13],[47.41,27.55],
+    [47.83,27.23],[48.12,26.92],[48.22,26.62],
+  ],
+);
+
+// Iceland
+const _cGeo234 = _Continent(
+  bbox: _BBox(63.5, 66.53, -24.33, -13.61),
+  polygon: [
+    [66.46,-14.51],[65.81,-14.74],[65.13,-13.61],[64.36,-14.91],[63.68,-17.79],[63.5,-18.66],
+    [63.64,-19.97],[63.96,-22.76],[64.4,-21.78],[64.89,-23.96],[65.08,-22.18],[65.38,-22.23],
+    [65.61,-24.33],[66.26,-23.65],[66.41,-22.13],[65.73,-20.58],[66.28,-19.06],[65.99,-17.8],
+    [66.53,-16.17],[66.46,-14.51],
+  ],
+);
+
+// Papua New Guinea
+const _cGeo235 = _Continent(
+  bbox: _BBox(-10.65, -2.6, 141.0, 150.8),
+  polygon: [
+    [-2.6,141.0],[-3.29,142.74],[-3.86,144.58],[-4.37,145.27],[-4.88,145.83],[-5.47,145.98],
+    [-6.08,147.65],[-6.61,147.89],[-6.72,146.97],[-7.39,147.19],[-8.04,148.08],[-9.1,148.73],
+    [-9.07,149.31],[-9.51,149.27],[-9.68,150.04],[-9.87,149.74],[-10.29,150.8],[-10.58,150.69],
+    [-10.65,150.03],[-10.39,149.78],[-10.28,148.92],[-10.13,147.91],[-9.49,147.14],[-8.94,146.57],
+    [-8.07,146.05],[-7.63,144.74],[-7.92,143.9],[-8.25,143.29],[-8.98,143.41],[-9.33,142.63],
+    [-9.16,142.07],[-9.12,141.03],[-5.86,141.02],[-2.6,141.0],
+  ],
+);
+
+// Papua New Guinea
+const _cGeo236 = _Continent(
+  bbox: _BBox(-4.77, -2.5, 150.66, 153.14),
+  polygon: [
+    [-3.66,152.64],[-3.98,153.02],[-4.5,153.14],[-4.77,152.83],[-4.18,152.64],[-3.79,152.41],
+    [-3.46,151.95],[-3.04,151.38],[-2.74,150.66],[-2.5,150.94],[-2.78,151.48],[-3.0,151.82],
+    [-3.24,152.24],[-3.66,152.64],
+  ],
+);
+
+// Papua New Guinea
+const _cGeo237 = _Continent(
+  bbox: _BBox(-6.32, -4.15, 148.32, 152.34),
+  polygon: [
+    [-5.84,151.3],[-6.08,150.75],[-6.32,150.24],[-6.32,149.71],[-6.03,148.89],[-5.75,148.32],
+    [-5.44,148.4],[-5.58,149.3],[-5.51,149.85],[-5.03,150.0],[-5.0,150.14],[-5.53,150.24],
+    [-5.46,150.81],[-5.11,151.09],[-4.76,151.65],[-4.17,151.54],[-4.15,152.14],[-4.31,152.34],
+    [-4.87,152.32],[-5.48,151.98],[-5.56,151.46],[-5.84,151.3],
+  ],
+);
+
+// Papua New Guinea
+const _cGeo238 = _Continent(
+  bbox: _BBox(-6.92, -5.04, 154.51, 156.02),
+  polygon: [
+    [-5.34,154.76],[-5.57,155.06],[-6.2,155.55],[-6.54,156.02],[-6.82,155.88],[-6.92,155.6],
+    [-6.54,155.17],[-5.9,154.73],[-5.14,154.51],[-5.04,154.65],[-5.34,154.76],
+  ],
+);
+
+// Australia
+const _cGeo239 = _Continent(
+  bbox: _BBox(-43.63, -40.7, 144.72, 148.36),
+  polygon: [
+    [-40.81,147.69],[-40.88,148.29],[-42.06,148.36],[-42.41,148.02],[-43.21,147.91],[-42.94,147.56],
+    [-43.63,146.87],[-43.58,146.66],[-43.55,146.05],[-42.69,145.43],[-42.03,145.3],[-41.16,144.72],
+    [-40.7,144.74],[-40.79,145.4],[-41.14,146.36],[-41.0,146.91],[-40.81,147.69],
+  ],
+);
+
+// Australia
+const _cGeo240 = _Continent(
+  bbox: _BBox(-39.04, -10.67, 113.34, 153.57),
+  polygon: [
+    [-32.22,126.15],[-32.96,124.22],[-33.91,122.81],[-33.93,120.58],[-34.46,119.01],[-35.03,117.3],
+    [-34.39,115.56],[-33.49,115.55],[-32.21,115.8],[-30.03,115.0],[-28.52,114.62],[-27.33,114.05],
+    [-26.55,113.78],[-26.3,114.23],[-24.68,113.63],[-23.56,113.71],[-22.48,113.74],[-21.83,114.65],
+    [-20.7,116.71],[-20.37,118.23],[-19.95,119.25],[-19.68,120.86],[-18.2,122.24],[-16.41,123.01],
+    [-16.6,123.5],[-15.57,124.38],[-14.68,125.17],[-14.35,126.13],[-13.82,127.07],[-14.88,128.99],
+    [-13.62,129.89],[-13.11,130.18],[-12.3,131.74],[-11.27,131.82],[-11.79,133.55],[-12.25,135.3],
+    [-12.05,136.26],[-12.89,136.69],[-13.72,136.08],[-15.0,135.5],[-16.22,137.58],[-16.81,138.59],
+    [-17.71,140.22],[-16.39,141.27],[-14.56,141.56],[-13.7,141.52],[-12.41,141.69],[-11.04,142.14],
+    [-11.78,142.87],[-12.83,143.52],[-14.55,143.92],[-14.59,144.89],[-16.29,145.49],[-17.76,146.16],
+    [-19.48,147.47],[-20.63,148.72],[-22.34,149.68],[-22.4,150.73],[-24.46,152.07],[-26.64,153.16],
+    [-29.0,153.51],[-30.35,153.07],[-32.55,152.45],[-34.31,151.01],[-36.42,150.08],[-37.77,149.42],
+    [-38.22,147.38],[-38.59,145.49],[-38.09,144.49],[-38.38,142.18],[-37.4,139.99],[-36.14,139.57],
+    [-35.13,138.45],[-35.26,136.83],[-33.64,137.89],[-34.09,136.37],[-34.48,135.21],[-32.85,134.09],
+    [-31.98,132.29],[-31.95,128.24],[-32.22,126.15],
+  ],
+);
+
+// New Zealand
+const _cGeo241 = _Continent(
+  bbox: _BBox(-41.69, -34.45, 172.64, 178.52),
+  polygon: [
+    [-40.07,176.89],[-40.6,176.51],[-41.29,176.01],[-41.69,175.24],[-41.43,175.07],[-41.28,174.65],
+    [-40.46,175.23],[-39.91,174.9],[-39.51,173.82],[-39.15,173.85],[-38.8,174.57],[-38.03,174.74],
+    [-37.38,174.7],[-36.71,174.29],[-36.53,174.32],[-36.12,173.84],[-35.24,173.05],[-34.53,172.64],
+    [-34.45,173.01],[-35.01,173.55],[-35.27,174.33],[-36.16,174.61],[-37.21,175.34],[-36.53,175.36],
+    [-36.8,175.81],[-37.56,175.96],[-37.88,176.76],[-37.96,177.44],[-37.58,178.01],[-37.7,178.52],
+    [-38.58,178.27],[-39.17,177.97],[-39.15,177.21],[-39.45,176.94],[-39.88,177.03],[-40.07,176.89],
+  ],
+);
+
+// New Zealand
+const _cGeo242 = _Continent(
+  bbox: _BBox(-46.64, -40.49, 166.51, 174.25),
+  polygon: [
+    [-43.56,169.67],[-43.03,170.52],[-42.51,171.13],[-41.77,171.57],[-41.51,171.95],[-40.96,172.1],
+    [-40.49,172.8],[-40.92,173.02],[-41.33,173.25],[-40.93,173.96],[-41.35,174.25],[-41.77,174.25],
+    [-42.23,173.88],[-42.97,173.22],[-43.37,172.71],[-43.85,173.08],[-43.87,172.31],[-44.24,171.45],
+    [-44.9,171.19],[-45.91,170.62],[-46.36,169.83],[-46.64,169.33],[-46.62,168.41],[-46.29,167.76],
+    [-46.22,166.68],[-45.85,166.51],[-45.11,167.05],[-44.12,168.3],[-43.94,168.95],[-43.56,169.67],
+  ],
+);
+
+// New Caledonia
+const _cGeo243 = _Continent(
+  bbox: _BBox(-22.4, -20.11, 164.03, 167.12),
+  polygon: [
+    [-21.08,165.78],[-21.7,166.6],[-22.16,167.12],[-22.4,166.74],[-22.13,166.19],[-21.68,165.47],
+    [-21.15,164.83],[-20.44,164.17],[-20.11,164.03],[-20.12,164.46],[-20.46,165.02],[-20.8,165.46],
+    [-21.08,165.78],
+  ],
+);
+
+// Solomon Is.
+const _cGeo244 = _Continent(
+  bbox: _BBox(-9.78, -8.32, 160.58, 161.68),
+  polygon: [
+    [-9.6,161.68],[-9.78,161.53],[-8.92,160.79],[-8.32,160.58],[-8.32,160.92],[-9.12,161.28],
+    [-9.6,161.68],
+  ],
+);
+
+// Solomon Is.
+const _cGeo245 = _Continent(
+  bbox: _BBox(-8.54, -7.32, 158.21, 159.92),
+  polygon: [
+    [-8.02,159.64],[-8.34,159.88],[-8.54,159.92],[-8.11,159.13],[-7.75,158.59],[-7.42,158.21],
+    [-7.32,158.36],[-7.56,158.82],[-8.02,159.64],
+  ],
+);
+
+// Antarctica
+const _cGeo246 = _Continent(
+  bbox: _BBox(-81.03, -77.83, -54.16, -43.33),
+  polygon: [
+    [-78.05,-48.66],[-78.05,-48.15],[-77.83,-46.66],[-78.05,-45.15],[-78.48,-43.92],[-79.09,-43.49],
+    [-79.52,-43.37],[-80.03,-43.33],[-80.34,-44.88],[-80.59,-46.51],[-80.83,-48.39],[-81.03,-50.48],
+    [-80.97,-52.85],[-80.63,-54.16],[-80.22,-53.99],[-79.95,-51.85],[-79.61,-50.99],[-79.18,-50.36],
+    [-78.81,-49.91],[-78.46,-49.31],[-78.05,-48.66],[-78.05,-48.66],
+  ],
+);
+
+// Antarctica
+const _cGeo247 = _Continent(
+  bbox: _BBox(-81.0, -79.63, -66.29, -59.57),
+  polygon: [
+    [-80.26,-66.29],[-80.29,-64.04],[-80.39,-61.88],[-79.98,-61.14],[-79.63,-60.61],[-80.04,-59.57],
+    [-80.55,-59.87],[-81.0,-60.16],[-80.86,-62.26],[-80.92,-64.49],[-80.59,-65.74],[-80.55,-65.74],
+    [-80.26,-66.29],
+  ],
+);
+
+// Antarctica
+const _cGeo248 = _Continent(
+  bbox: _BBox(-72.5, -68.88, -75.01, -68.33),
+  polygon: [
+    [-71.27,-73.92],[-71.27,-73.92],[-71.15,-73.23],[-71.19,-72.07],[-70.68,-71.78],[-70.31,-71.72],
+    [-69.51,-71.74],[-69.04,-71.17],[-68.88,-70.25],[-69.25,-69.72],[-69.62,-69.49],[-70.07,-69.06],
+    [-70.51,-68.73],[-70.96,-68.45],[-71.41,-68.33],[-71.8,-68.51],[-72.17,-68.78],[-72.31,-69.96],
+    [-72.5,-71.08],[-72.48,-72.39],[-72.09,-71.9],[-72.23,-73.07],[-72.37,-74.19],[-72.07,-74.95],
+    [-71.66,-75.01],[-71.27,-73.92],
+  ],
+);
+
+// Antarctica
+const _cGeo249 = _Continent(
+  bbox: _BBox(-72.52, -71.72, -102.33, -96.2),
+  polygon: [
+    [-71.89,-102.33],[-71.89,-102.33],[-71.72,-101.7],[-71.85,-100.43],[-71.93,-98.98],[-72.07,-97.88],
+    [-71.95,-96.79],[-72.52,-96.2],[-72.44,-96.98],[-72.48,-98.2],[-72.44,-99.43],[-72.5,-100.78],
+    [-72.31,-101.8],[-71.89,-102.33],
+  ],
+);
+
+// Antarctica
+const _cGeo250 = _Continent(
+  bbox: _BBox(-74.09, -73.32, -122.62, -118.72),
+  polygon: [
+    [-73.66,-122.62],[-73.66,-122.62],[-73.32,-122.41],[-73.5,-121.21],[-73.66,-119.92],[-73.48,-118.72],
+    [-73.83,-119.29],[-74.09,-120.23],[-74.01,-121.62],[-73.66,-122.62],
+  ],
+);
+
+// Antarctica
+const _cGeo251 = _Continent(
+  bbox: _BBox(-73.87, -73.25, -127.28, -124.03),
+  polygon: [
+    [-73.46,-127.28],[-73.46,-127.28],[-73.25,-126.56],[-73.48,-125.56],[-73.87,-124.03],[-73.83,-124.62],
+    [-73.74,-125.91],[-73.46,-127.28],
+  ],
+);
+
+// Antarctica
+const _cGeo252 = _Continent(
+  bbox: _BBox(-79.63, -78.22, -163.71, -159.21),
+  polygon: [
+    [-78.6,-163.71],[-78.6,-163.71],[-78.22,-163.11],[-78.38,-161.25],[-78.69,-160.25],[-79.05,-159.48],
+    [-79.5,-159.21],[-79.63,-161.13],[-79.28,-162.44],[-78.93,-163.03],[-78.87,-163.07],[-78.6,-163.71],
+  ],
+);
+
+// Antarctica
+const _cGeo253 = _Continent(
+  bbox: _BBox(-90, -63.27, -180, 180),
+  polygon: [
+    [-84.71,180],[-84.45,-177.26],[-84.06,-172.89],[-85.37,-158.07],[-84.53,-146.83],[-82.04,-152.86],
+    [-81.04,-148.87],[-79.16,-153.39],[-77.3,-156.97],[-76.58,-147.61],[-75.34,-142.79],[-74.36,-134.43],
+    [-74.52,-125.4],[-74.24,-116.22],[-74.79,-110.07],[-75.3,-100.65],[-72.62,-103.68],[-73.62,-96.34],
+    [-73.01,-88.42],[-73.48,-80.69],[-73.66,-73.85],[-72.48,-67.37],[-69.72,-68.54],[-66.88,-67.25],
+    [-64.64,-63.0],[-63.27,-57.81],[-64.54,-61.3],[-66.5,-63.75],[-68.91,-63.96],[-72.01,-61.38],
+    [-74.58,-63.3],[-76.63,-70.6],[-77.56,-74.28],[-79.51,-76.85],[-81.47,-65.7],[-82.57,-55.36],
+    [-81.65,-42.16],[-80.34,-28.55],[-79.08,-35.91],[-76.67,-28.88],[-75.67,-20.01],[-73.87,-16.47],
+    [-71.54,-11.02],[-71.03,-5.79],[-71.3,0.87],[-69.89,7.74],[-69.97,13.42],[-70.01,20.38],
+    [-70.46,27.09],[-68.84,33.3],[-69.78,38.65],[-68.05,44.9],[-66.88,50.75],[-65.97,56.36],
+    [-67.95,61.43],[-67.93,67.89],[-70.7,67.95],[-72.09,71.02],[-69.78,74.49],[-68.07,80.09],
+    [-67.09,85.66],[-67.15,89.67],[-67.39,95.78],[-66.31,101.58],[-66.95,108.08],[-66.07,114.39],
+    [-67.19,120.87],[-66.56,127.0],[-66.29,133.86],[-66.78,136.62],[-66.84,144.37],[-68.56,150.13],
+    [-69.38,156.81],[-70.72,163.84],[-71.7,171.21],[-74.17,167.39],[-76.69,163.47],[-78.91,165.19],
+    [-81.28,161.12],[-83.83,169.4],[-84.71,180],
+  ],
+);
+
+// Fr. S. Antarctic Lands
+const _cGeo254 = _Continent(
+  bbox: _BBox(-49.77, -48.62, 68.72, 70.56),
+  polygon: [
+    [-48.62,68.94],[-48.94,69.58],[-49.06,70.53],[-49.26,70.56],[-49.71,70.28],[-49.77,68.75],
+    [-49.24,68.72],[-48.83,68.87],[-48.62,68.94],
+  ],
+);
+
+const List<_Continent> _continents = [
+  _cGeo0, // Costa Rica
+  _cGeo1, // Nicaragua
+  _cGeo2, // Haiti
+  _cGeo3, // Dominican Rep.
+  _cGeo4, // El Salvador
+  _cGeo5, // Guatemala
+  _cGeo6, // Cuba
+  _cGeo7, // Honduras
+  _cGeo8, // United States of America
+  _cGeo9, // United States of America
+  _cGeo10, // United States of America
+  _cGeo11, // United States of America
+  _cGeo12, // United States of America
+  _cGeo13, // Canada
+  _cGeo14, // Canada
+  _cGeo15, // Canada
+  _cGeo16, // Canada
+  _cGeo17, // Canada
+  _cGeo18, // Canada
+  _cGeo19, // Canada
+  _cGeo20, // Canada
+  _cGeo21, // Canada
+  _cGeo22, // Canada
+  _cGeo23, // Canada
+  _cGeo24, // Canada
+  _cGeo25, // Canada
+  _cGeo26, // Canada
+  _cGeo27, // Canada
+  _cGeo28, // Canada
+  _cGeo29, // Canada
+  _cGeo30, // Canada
+  _cGeo31, // Canada
+  _cGeo32, // Canada
+  _cGeo33, // Canada
+  _cGeo34, // Canada
+  _cGeo35, // Canada
+  _cGeo36, // Canada
+  _cGeo37, // Canada
+  _cGeo38, // Canada
+  _cGeo39, // Canada
+  _cGeo40, // Mexico
+  _cGeo41, // Belize
+  _cGeo42, // Panama
+  _cGeo43, // Greenland
+  _cGeo44, // Jamaica
+  _cGeo45, // Indonesia
+  _cGeo46, // Indonesia
+  _cGeo47, // Indonesia
+  _cGeo48, // Indonesia
+  _cGeo49, // Indonesia
+  _cGeo50, // Indonesia
+  _cGeo51, // Indonesia
+  _cGeo52, // Indonesia
+  _cGeo53, // Indonesia
+  _cGeo54, // Indonesia
+  _cGeo55, // Indonesia
+  _cGeo56, // Malaysia
+  _cGeo57, // Malaysia
+  _cGeo58, // India
+  _cGeo59, // China
+  _cGeo60, // China
+  _cGeo61, // Israel
+  _cGeo62, // Lebanon
+  _cGeo63, // Syria
+  _cGeo64, // South Korea
+  _cGeo65, // North Korea
+  _cGeo66, // Bhutan
+  _cGeo67, // Oman
+  _cGeo68, // Uzbekistan
+  _cGeo69, // Kazakhstan
+  _cGeo70, // Tajikistan
+  _cGeo71, // Mongolia
+  _cGeo72, // Vietnam
+  _cGeo73, // Cambodia
+  _cGeo74, // United Arab Emirates
+  _cGeo75, // Georgia
+  _cGeo76, // Azerbaijan
+  _cGeo77, // Turkey
+  _cGeo78, // Turkey
+  _cGeo79, // Laos
+  _cGeo80, // Kyrgyzstan
+  _cGeo81, // Armenia
+  _cGeo82, // Iraq
+  _cGeo83, // Iran
+  _cGeo84, // Saudi Arabia
+  _cGeo85, // Pakistan
+  _cGeo86, // Thailand
+  _cGeo87, // Kuwait
+  _cGeo88, // Timor-Leste
+  _cGeo89, // Brunei
+  _cGeo90, // Myanmar
+  _cGeo91, // Bangladesh
+  _cGeo92, // Afghanistan
+  _cGeo93, // Turkmenistan
+  _cGeo94, // Jordan
+  _cGeo95, // Nepal
+  _cGeo96, // Yemen
+  _cGeo97, // Philippines
+  _cGeo98, // Philippines
+  _cGeo99, // Philippines
+  _cGeo100, // Philippines
+  _cGeo101, // Philippines
+  _cGeo102, // Philippines
+  _cGeo103, // Philippines
+  _cGeo104, // Sri Lanka
+  _cGeo105, // Taiwan
+  _cGeo106, // Japan
+  _cGeo107, // Japan
+  _cGeo108, // Japan
+  _cGeo109, // Chile
+  _cGeo110, // Chile
+  _cGeo111, // Bolivia
+  _cGeo112, // Peru
+  _cGeo113, // Argentina
+  _cGeo114, // Argentina
+  _cGeo115, // Suriname
+  _cGeo116, // Guyana
+  _cGeo117, // Brazil
+  _cGeo118, // Uruguay
+  _cGeo119, // Ecuador
+  _cGeo120, // Colombia
+  _cGeo121, // Paraguay
+  _cGeo122, // Venezuela
+  _cGeo123, // Falkland Is.
+  _cGeo124, // Ethiopia
+  _cGeo125, // S. Sudan
+  _cGeo126, // Somalia
+  _cGeo127, // Kenya
+  _cGeo128, // Malawi
+  _cGeo129, // Tanzania
+  _cGeo130, // Somaliland
+  _cGeo131, // Morocco
+  _cGeo132, // W. Sahara
+  _cGeo133, // Congo
+  _cGeo134, // Dem. Rep. Congo
+  _cGeo135, // Namibia
+  _cGeo136, // South Africa
+  _cGeo137, // Libya
+  _cGeo138, // Tunisia
+  _cGeo139, // Zambia
+  _cGeo140, // Sierra Leone
+  _cGeo141, // Guinea
+  _cGeo142, // Liberia
+  _cGeo143, // Central African Rep.
+  _cGeo144, // Sudan
+  _cGeo145, // Djibouti
+  _cGeo146, // Eritrea
+  _cGeo147, // Côte d'Ivoire
+  _cGeo148, // Mali
+  _cGeo149, // Senegal
+  _cGeo150, // Nigeria
+  _cGeo151, // Benin
+  _cGeo152, // Angola
+  _cGeo153, // Botswana
+  _cGeo154, // Zimbabwe
+  _cGeo155, // Chad
+  _cGeo156, // Algeria
+  _cGeo157, // Mozambique
+  _cGeo158, // eSwatini
+  _cGeo159, // Burundi
+  _cGeo160, // Rwanda
+  _cGeo161, // Uganda
+  _cGeo162, // Lesotho
+  _cGeo163, // Cameroon
+  _cGeo164, // Gabon
+  _cGeo165, // Niger
+  _cGeo166, // Burkina Faso
+  _cGeo167, // Togo
+  _cGeo168, // Ghana
+  _cGeo169, // Guinea-Bissau
+  _cGeo170, // Egypt
+  _cGeo171, // Mauritania
+  _cGeo172, // Eq. Guinea
+  _cGeo173, // Gambia
+  _cGeo174, // Madagascar
+  _cGeo175, // France
+  _cGeo176, // France
+  _cGeo177, // France
+  _cGeo178, // Ukraine
+  _cGeo179, // Belarus
+  _cGeo180, // Lithuania
+  _cGeo181, // Russia
+  _cGeo182, // Russia
+  _cGeo183, // Russia
+  _cGeo184, // Russia
+  _cGeo185, // Russia
+  _cGeo186, // Russia
+  _cGeo187, // Russia
+  _cGeo188, // Russia
+  _cGeo189, // Russia
+  _cGeo190, // Russia
+  _cGeo191, // Russia
+  _cGeo192, // Russia
+  _cGeo193, // Russia
+  _cGeo194, // Czechia
+  _cGeo195, // Germany
+  _cGeo196, // Estonia
+  _cGeo197, // Latvia
+  _cGeo198, // Norway
+  _cGeo199, // Norway
+  _cGeo200, // Norway
+  _cGeo201, // Norway
+  _cGeo202, // Sweden
+  _cGeo203, // Finland
+  _cGeo204, // Belgium
+  _cGeo205, // North Macedonia
+  _cGeo206, // Albania
+  _cGeo207, // Kosovo
+  _cGeo208, // Spain
+  _cGeo209, // Denmark
+  _cGeo210, // Denmark
+  _cGeo211, // Romania
+  _cGeo212, // Hungary
+  _cGeo213, // Slovakia
+  _cGeo214, // Poland
+  _cGeo215, // Ireland
+  _cGeo216, // United Kingdom
+  _cGeo217, // United Kingdom
+  _cGeo218, // Greece
+  _cGeo219, // Greece
+  _cGeo220, // Austria
+  _cGeo221, // Italy
+  _cGeo222, // Italy
+  _cGeo223, // Italy
+  _cGeo224, // Switzerland
+  _cGeo225, // Netherlands
+  _cGeo226, // Serbia
+  _cGeo227, // Croatia
+  _cGeo228, // Slovenia
+  _cGeo229, // Bulgaria
+  _cGeo230, // Montenegro
+  _cGeo231, // Bosnia and Herz.
+  _cGeo232, // Portugal
+  _cGeo233, // Moldova
+  _cGeo234, // Iceland
+  _cGeo235, // Papua New Guinea
+  _cGeo236, // Papua New Guinea
+  _cGeo237, // Papua New Guinea
+  _cGeo238, // Papua New Guinea
+  _cGeo239, // Australia
+  _cGeo240, // Australia
+  _cGeo241, // New Zealand
+  _cGeo242, // New Zealand
+  _cGeo243, // New Caledonia
+  _cGeo244, // Solomon Is.
+  _cGeo245, // Solomon Is.
+  _cGeo246, // Antarctica
+  _cGeo247, // Antarctica
+  _cGeo248, // Antarctica
+  _cGeo249, // Antarctica
+  _cGeo250, // Antarctica
+  _cGeo251, // Antarctica
+  _cGeo252, // Antarctica
+  _cGeo253, // Antarctica
+  _cGeo254, // Fr. S. Antarctic Lands
+];

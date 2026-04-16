@@ -45,10 +45,63 @@ StreamSubscription<dynamic> listenWebSocket(
     // Use ByteBuffer from dart:typed_data — html.ByteBuffer is invalid in DDC.
     if (data is ByteBuffer) {
       onMessage(Uint8List.view(data));
-    } else {
-      onMessage(data); // String
+      return;
     }
+    if (data is html.Blob) {
+      unawaited(
+        _readBlobBytes(data).then(onMessage).catchError(onError),
+      );
+      return;
+    }
+    if (data is String) {
+      onMessage(data);
+      return;
+    }
+
+    print(
+      '[websocket_web] unexpected message type: ${data.runtimeType}',
+    );
+    onMessage(data);
   });
+}
+
+Future<Uint8List> _readBlobBytes(html.Blob blob) {
+  final reader = html.FileReader();
+  final completer = Completer<Uint8List>();
+
+  late final StreamSubscription loadEndSub;
+  late final StreamSubscription errorSub;
+
+  void cleanup() {
+    loadEndSub.cancel();
+    errorSub.cancel();
+  }
+
+  loadEndSub = reader.onLoadEnd.listen((_) {
+    cleanup();
+    final result = reader.result;
+    if (result is ByteBuffer) {
+      completer.complete(Uint8List.view(result));
+      return;
+    }
+    if (result is Uint8List) {
+      completer.complete(result);
+      return;
+    }
+    completer.completeError(
+      StateError('WebSocket Blob read returned ${result.runtimeType}.'),
+    );
+  });
+
+  errorSub = reader.onError.listen((_) {
+    cleanup();
+    completer.completeError(
+      StateError('Failed to read WebSocket binary blob.'),
+    );
+  });
+
+  reader.readAsArrayBuffer(blob);
+  return completer.future;
 }
 
 /// Send a JSON text frame.
@@ -58,7 +111,13 @@ void sendWebSocket(dynamic socket, String data) {
 
 /// Send raw binary frame (PCM audio to server).
 void sendBinaryWebSocket(dynamic socket, Uint8List bytes) {
-  (socket as html.WebSocket).send(bytes.buffer);
+  final ws = socket as html.WebSocket;
+  final payload = bytes.offsetInBytes == 0 &&
+          bytes.lengthInBytes == bytes.buffer.lengthInBytes
+      ? bytes
+      : Uint8List.sublistView(bytes);
+
+  ws.send(html.Blob(<Object>[payload]));
 }
 
 void closeWebSocket(dynamic socket) {

@@ -4,7 +4,9 @@ import '../../domain/entities/agni_content.dart';
 import '../pages/landing_page.dart';
 import '../../core/socket_service.dart';
 
-const String _wsUrl = 'wss://demo.nitya.ai/new/ws';
+const String _defaultWsUrl = 'ws://192.168.0.20:9876/new/ws';
+const String _envWsUrl = String.fromEnvironment('AGNI_WS_URL');
+final String _wsUrl = _envWsUrl.isEmpty ? _defaultWsUrl : _envWsUrl;
 
 class AgniApp extends StatefulWidget {
   final AgniContent content;
@@ -17,6 +19,9 @@ class AgniApp extends StatefulWidget {
 class _AgniAppState extends State<AgniApp> {
   bool _isDark = false;
   late final SocketService _socketService;
+  int _rxMsgCount = 0;
+  int _rxChunkCount = 0;
+  int _rxChunkBytes = 0;
 
   @override
   void initState() {
@@ -24,7 +29,39 @@ class _AgniAppState extends State<AgniApp> {
     _socketService = SocketService(
       url: _wsUrl,
       authPayload: const {},
-    )..connect();
+    );
+
+    // ── Diagnostics ──────────────────────────────────────────────────────────
+    _socketService.messages.listen((msg) {
+      _rxMsgCount += 1;
+      final type = msg['type']?.toString() ?? 'unknown';
+      final latency = msg['latency'];
+      debugPrint(
+        '[AgniApp] ✅ message[$_rxMsgCount] type=$type '
+        'keys=${msg.keys.join(",")} '
+        'latency=${latency is Map ? latency : "n/a"}',
+      );
+    });
+
+    _socketService.audioChunks.listen((bytes) {
+      _rxChunkCount += 1;
+      _rxChunkBytes += bytes.length;
+      debugPrint(
+        '[AgniApp] 🔊 audio chunk[$_rxChunkCount] '
+        'bytes=${bytes.length} total=$_rxChunkBytes',
+      );
+    });
+
+    // Connect after listeners are wired so we don't miss early messages.
+    _socketService.connect().then((_) {
+      debugPrint(
+        '[AgniApp] connect() resolved — '
+        'url=$_wsUrl '
+        'isConnected=${_socketService.isConnected} '
+        'isConnecting=${_socketService.isConnecting}',
+      );
+      if (mounted) setState(() {}); // rebuild to reflect connection state
+    });
   }
 
   @override

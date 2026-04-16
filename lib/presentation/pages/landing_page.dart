@@ -1,19 +1,14 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
-import '../widgets/earth_globe_painter.dart';
 
 import '../../core/agni_colors.dart';
-import '../../core/backend_audio_player_stub.dart'
-    if (dart.library.html) '../../core/backend_audio_player_web.dart'
-    if (dart.library.io) '../../core/backend_audio_player_io.dart';
+import '../../core/conversation_download.dart';
 import '../../core/socket_service.dart';
-import '../../core/voice_recorder_stub.dart'
-    if (dart.library.html) '../../core/voice_recorder_web.dart'
-    if (dart.library.io) '../../core/voice_recorder_io.dart';
+import '../controllers/voice_chat_controller.dart';
+import '../viewmodels/voice_chat_view_model.dart';
 import '../../domain/entities/agni_content.dart';
 
 // ─── Video Player Widget ───────────────────────────────────────────────────────
@@ -101,21 +96,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
   late AnimationController _marqueeController;
   late AnimationController _langController;
   late AnimationController _floatController;
-  late final VoiceRecorder _voiceRecorder;
-  late final BackendAudioPlayer _backendAudioPlayer;
-
-  StreamSubscription<Map<String, dynamic>>? _socketMessageSub;
-  StreamSubscription<Uint8List>? _audioChunkSub;
-
-  final List<_ConversationItem> _conversation = <_ConversationItem>[];
-
-  // Audio chunk accumulator — collect all MP3 chunks, flush on ai_done
-  final List<Uint8List> _audioChunks = [];
-
-  bool _isRecording = false;
-  bool _isSending = false;
-  String? _pendingClientMessageId;
-  bool _awaitingBackendResponse = false;
+  late final VoiceChatViewModel _voiceChatViewModel;
 
   int _langIndex = 0;
   double _langOpacity = 1.0;
@@ -178,14 +159,9 @@ class _AgniLandingPageState extends State<AgniLandingPage>
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
 
-    _voiceRecorder = createVoiceRecorder();
-    _backendAudioPlayer = createBackendAudioPlayer();
-
-    _socketMessageSub = widget.socketService.messages.listen(_onBackendMessage);
-
-    _audioChunkSub = widget.socketService.audioChunks.listen((bytes) {
-      _audioChunks.add(bytes);
-    });
+    _voiceChatViewModel =
+        VoiceChatViewModel(socketService: widget.socketService)
+          ..addListener(_handleChatControllerChange);
 
     _scrollController.addListener(_checkReveal);
 
@@ -194,6 +170,11 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkReveal());
+  }
+
+  void _handleChatControllerChange() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   void _cycleLang() async {
@@ -224,267 +205,47 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     }
   }
 
-  void _addConversation(_ConversationItem item) {
-    if (!mounted) return;
-    setState(() {
-      _conversation.add(item);
-      if (_conversation.length > 80) {
-        _conversation.removeAt(0);
-      }
-    });
-  }
-
-  void _removePendingTranscriptPlaceholders() {
-    if (!mounted) return;
-    setState(() {
-      _conversation.removeWhere(
-        (item) =>
-            item.source == 'user' && item.message == 'Listening transcript...',
-      );
-    });
-  }
-
   Future<void> _onTapToTalk() async {
-    await _backendAudioPlayer.prime();
-
-    if (!_voiceRecorder.isSupported) {
-      _addConversation(
-        const _ConversationItem(
-          source: 'system',
-          message: 'Microphone capture is unavailable in this environment.',
-        ),
-      );
-      return;
-    }
-
-    if (_isSending) return;
-
-    if (_isRecording) {
-      await _stopAndSendVoice();
-    } else {
-      await _startVoiceCapture();
-    }
+    await _voiceChatViewModel.onTalkPressed();
   }
 
-  Future<void> _startVoiceCapture() async {
-    try {
-      await _voiceRecorder.start();
-      if (!mounted) return;
-      setState(() => _isRecording = true);
-    } catch (e) {
-      _addConversation(
-        _ConversationItem(
-          source: 'system',
-          message: 'Unable to access microphone: $e',
-        ),
-      );
-    }
-  }
+  Future<void> _downloadConversation() async {
+    final visibleConversation = _voiceChatViewModel.visibleConversation;
+    if (visibleConversation.isEmpty) return;
 
-  Future<void> _stopAndSendVoice() async {
-    if (_awaitingBackendResponse) {
-      _removePendingTranscriptPlaceholders();
-    }
-    setState(() => _isSending = true);
-    try {
-      final recorded = await _voiceRecorder.stop();
-      if (!mounted) return;
-      setState(() => _isRecording = false);
+    final buffer = StringBuffer()
+      ..writeln('Technodysis Conversation Export')
+      ..writeln('Generated: ${DateTime.now().toIso8601String()}')
+      ..writeln();
 
-      if (recorded == null || recorded.pcmBytes.isEmpty) {
-        _addConversation(
-          const _ConversationItem(
-            source: 'system',
-            message: 'No audio captured. Please try speaking longer.',
-          ),
-        );
-        return;
-      }
-
-      final clientMessageId = 'voice_${DateTime.now().millisecondsSinceEpoch}';
-      _pendingClientMessageId = clientMessageId;
-      _awaitingBackendResponse = true;
-
-      _addConversation(
-        _ConversationItem(
-          source: 'user',
-          message: 'Listening transcript...',
-          clientMessageId: clientMessageId,
-        ),
-      );
-
-      widget.socketService.sendAudio(recorded.pcmBytes);
-    } catch (e) {
-      _addConversation(
-        _ConversationItem(
-          source: 'system',
-          message: 'Failed while sending recorded audio: $e',
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isSending = false);
-      }
-    }
-  }
-
-  // ── Backend message handler ────────────────────────────────────────────────
-  void _onBackendMessage(Map<String, dynamic> msg) {
-    print('[VoiceFlow] backend message: $msg');
-    final type = msg['type']?.toString() ?? '';
-
-    switch (type) {
-      case 'session_start':
-      case 'pong':
-      case 'server_ping':
-      case 'ack':
-      case 'connected':
-      case 'status':
-      case 'interrupt':
-      case 'reset_ack':
-      case 'session_update':
-      case 'voice_changed':
-      case 'backchannel':
-        return;
-
-      case 'partial':
-        final text = msg['text']?.toString() ?? '';
-        if (text.trim().isNotEmpty) {
-          setState(() {
-            final idx = _conversation.lastIndexWhere(
-              (item) =>
-                  item.source == 'user' &&
-                  item.message == 'Listening transcript...',
-            );
-            if (idx >= 0) {
-              _conversation[idx] = _ConversationItem(
-                source: 'user',
-                message: text.trim(),
-                clientMessageId: _conversation[idx].clientMessageId,
-              );
-            }
-          });
-        }
-        return;
-
-      case 'transcript':
-        final text = msg['text']?.toString() ?? '';
-        if (text.trim().isNotEmpty) {
-          _awaitingBackendResponse = false;
-          _replacePendingUserTranscript(
-            transcript: text.trim(),
-            clientMessageId: msg['client_message_id']?.toString(),
-          );
-        }
-        return;
-
-      case 'ai_stream':
-        final text = msg['text']?.toString() ?? '';
-        if (text.trim().isNotEmpty) {
-          _awaitingBackendResponse = false;
-          if (_conversation.isNotEmpty &&
-              _conversation.last.source == 'assistant') {
-            setState(() {
-              final last = _conversation.last;
-              _conversation[_conversation.length - 1] = _ConversationItem(
-                source: 'assistant',
-                message: last.message + text,
-                clientMessageId: last.clientMessageId,
-              );
-            });
-          } else {
-            _addConversation(
-              _ConversationItem(source: 'assistant', message: text),
-            );
-          }
-        }
-        return;
-
-      case 'ai_done':
-        _awaitingBackendResponse = false;
-        if (_audioChunks.isNotEmpty) {
-          final totalLen =
-              _audioChunks.fold<int>(0, (sum, c) => sum + c.length);
-          final merged = Uint8List(totalLen);
-          var offset = 0;
-          for (final chunk in _audioChunks) {
-            merged.setRange(offset, offset + chunk.length, chunk);
-            offset += chunk.length;
-          }
-          _audioChunks.clear();
-          _backendAudioPlayer.playBytes(bytes: merged, mimeType: 'audio/mpeg');
-        }
-        return;
-
-      case 'error':
-        final text = msg['text']?.toString() ?? 'An error occurred.';
-        _addConversation(_ConversationItem(source: 'system', message: text));
-        return;
-
-      default:
-        print('[VoiceFlow] unhandled message type: $type');
-        return;
-    }
-  }
-
-  void _replacePendingUserTranscript({
-    required String transcript,
-    String? clientMessageId,
-  }) {
-    final normalized = transcript.trim();
-    if (normalized.isEmpty) return;
-
-    int? indexToReplace;
-    if (clientMessageId != null && clientMessageId.isNotEmpty) {
-      for (int i = _conversation.length - 1; i >= 0; i--) {
-        final item = _conversation[i];
-        if (item.source == 'user' &&
-            item.clientMessageId == clientMessageId &&
-            item.message == 'Listening transcript...') {
-          indexToReplace = i;
-          break;
-        }
-      }
+    for (final message in visibleConversation) {
+      final speaker = message.source == 'user' ? 'User' : 'Assistant';
+      buffer
+        ..writeln('$speaker:')
+        ..writeln(message.text.trim())
+        ..writeln();
     }
 
-    indexToReplace ??= _pendingClientMessageId == null
-        ? null
-        : _conversation.lastIndexWhere(
-            (item) =>
-                item.source == 'user' &&
-                item.clientMessageId == _pendingClientMessageId &&
-                item.message == 'Listening transcript...',
-          );
+    final didDownload = await downloadConversationText(
+      filename:
+          'technodysis_conversation_${DateTime.now().millisecondsSinceEpoch}.txt',
+      content: buffer.toString(),
+    );
 
-    if (indexToReplace != null && indexToReplace >= 0) {
-      setState(() {
-        _conversation[indexToReplace!] = _ConversationItem(
-          source: 'user',
-          message: normalized,
-          clientMessageId: clientMessageId ?? _pendingClientMessageId,
-        );
-      });
-      _pendingClientMessageId = null;
-      _awaitingBackendResponse = false;
-      return;
-    }
+    if (!mounted || didDownload) return;
 
-    _addConversation(
-      _ConversationItem(
-        source: 'user',
-        message: normalized,
-        clientMessageId: clientMessageId,
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Conversation download is only available in the web app.'),
       ),
     );
   }
 
   @override
   void dispose() {
-    _audioChunks.clear();
-    _socketMessageSub?.cancel();
-    _audioChunkSub?.cancel();
-    _voiceRecorder.dispose();
-    _backendAudioPlayer.dispose();
+    _voiceChatViewModel
+      ..removeListener(_handleChatControllerChange)
+      ..dispose();
     _globeController.dispose();
     _waveController.dispose();
     _marqueeController.dispose();
@@ -857,8 +618,8 @@ class _AgniLandingPageState extends State<AgniLandingPage>
       clipBehavior: Clip.none,
       children: [
         Container(
-          width: 280,
-          height: 460,
+          width: 340,
+          height: 500,
           decoration: BoxDecoration(
             color: isDark
                 ? const Color(0xFF08162A).withOpacity(0.80)
@@ -924,8 +685,11 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                   ),
                 ),
               ),
-              Center(
-                child: Column(
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 26),
+                  child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _buildTalkingAvatar(),
@@ -978,9 +742,9 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                           ],
                         ),
                         child: Text(
-                          _isSending
-                              ? '● Sending audio...'
-                              : _isRecording
+                          _voiceChatViewModel.state == VoiceChatState.processing
+                              ? '● Processing...'
+                              : _voiceChatViewModel.state == VoiceChatState.listening
                                   ? '■ Tap to stop'
                                   : '● Tap to talk',
                           style: const TextStyle(
@@ -993,9 +757,10 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                     ),
                     if (isNarrow) ...[
                       const SizedBox(height: 14),
-                      _buildConversationPanel(width: 220, height: 116),
+                      _buildConversationPanel(width: 280, height: 170),
                     ],
                   ],
+                  ),
                 ),
               ),
             ],
@@ -1003,9 +768,9 @@ class _AgniLandingPageState extends State<AgniLandingPage>
         ),
         if (!isNarrow)
           Positioned(
-            top: 190,
-            right: -290,
-            child: _buildConversationPanel(width: 268, height: 260),
+            top: 05,
+            right: -520,
+            child: _buildConversationPanel(width: 500, height: 500),
           ),
       ],
     );
@@ -1117,9 +882,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
         ? AgniColors.oceanBright.withOpacity(0.20)
         : AgniColors.oceanMid.withOpacity(0.18);
 
-    final visibleConversation = _conversation
-        .where((item) => item.source == 'user' || item.source == 'assistant')
-        .toList();
+    final visibleConversation = _voiceChatViewModel.visibleConversation;
 
     return Container(
       width: width,
@@ -1130,66 +893,98 @@ class _AgniLandingPageState extends State<AgniLandingPage>
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: border),
       ),
-      child: visibleConversation.isEmpty
-          ? Center(
-              child: Text(
-                'Speak to start conversation',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  color: text3Color,
-                  height: 1.4,
+      child: Column(
+        children: [
+          if (visibleConversation.isNotEmpty)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _downloadConversation,
+                style: TextButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  foregroundColor:
+                      isDark ? AgniColors.oceanBright : AgniColors.oceanMid,
+                ),
+                icon: const Icon(Icons.download_rounded, size: 16),
+                label: Text(
+                  'Download',
+                  style: TextStyle(
+                    fontSize: width >= 300 ? 12.2 : 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            )
-          : ListView.builder(
-              reverse: true,
-              itemCount: visibleConversation.length,
-              itemBuilder: (context, index) {
-                final item =
-                    visibleConversation[visibleConversation.length - 1 - index];
-                final isUser = item.source == 'user';
-                final isAssistant = item.source == 'assistant';
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Align(
-                    alignment:
-                        isUser ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Container(
-                      constraints: const BoxConstraints(maxWidth: 190),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: isUser
-                            ? (isDark
-                                ? AgniColors.oceanBright.withOpacity(0.22)
-                                : AgniColors.oceanBright.withOpacity(0.16))
-                            : (isAssistant
-                                ? (isDark
-                                    ? AgniColors.forestLight.withOpacity(0.18)
-                                    : AgniColors.forestLight.withOpacity(0.16))
-                                : (isDark
-                                    ? AgniColors.darkBorder.withOpacity(0.20)
-                                    : Colors.white.withOpacity(0.75))),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _sourceColor(item.source).withOpacity(0.30),
-                          width: 0.8,
-                        ),
-                      ),
-                      child: Text(
-                        item.message,
-                        style: TextStyle(
-                          fontSize: 10.8,
-                          color: text2Color,
-                          height: 1.35,
-                        ),
+            ),
+          Expanded(
+            child: visibleConversation.isEmpty
+                ? Center(
+                    child: Text(
+                      'Speak to start conversation',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: text3Color,
+                        height: 1.4,
                       ),
                     ),
+                  )
+                : ListView.builder(
+                    reverse: true,
+                    itemCount: visibleConversation.length,
+                    itemBuilder: (context, index) {
+                      final item = visibleConversation[
+                          visibleConversation.length - 1 - index];
+                      final isUser = item.source == 'user';
+                      final isAssistant = item.source == 'assistant';
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Align(
+                          alignment: isUser
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            constraints: BoxConstraints(maxWidth: width * 0.72),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isUser
+                                  ? (isDark
+                                      ? AgniColors.oceanBright.withOpacity(0.22)
+                                      : AgniColors.oceanBright
+                                          .withOpacity(0.16))
+                                  : (isAssistant
+                                      ? (isDark
+                                          ? AgniColors.forestLight
+                                              .withOpacity(0.18)
+                                          : AgniColors.forestLight
+                                              .withOpacity(0.16))
+                                      : (isDark
+                                          ? AgniColors.darkBorder
+                                              .withOpacity(0.20)
+                                          : Colors.white.withOpacity(0.75))),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _sourceColor(item.source).withOpacity(0.30),
+                                width: 0.8,
+                              ),
+                            ),
+                            child: Text(
+                              item.text,
+                              style: TextStyle(
+                                fontSize: width >= 300 ? 12.2 : 10.8,
+                                color: text2Color,
+                                height: 1.45,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2073,20 +1868,6 @@ class _AgniLandingPageState extends State<AgniLandingPage>
           )),
     );
   }
-}
-
-// ─── Data classes ─────────────────────────────────────────────────────────────
-
-class _ConversationItem {
-  final String source;
-  final String message;
-  final String? clientMessageId;
-
-  const _ConversationItem({
-    required this.source,
-    required this.message,
-    this.clientMessageId,
-  });
 }
 
 // ─── Reveal Widget ────────────────────────────────────────────────────────────

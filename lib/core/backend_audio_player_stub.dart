@@ -15,6 +15,8 @@ abstract class BackendAudioPlayer {
     String mimeType = 'audio/mpeg',
   });
 
+  Future<void> speakText(String text);
+
   Future<void> dispose();
 }
 
@@ -38,6 +40,9 @@ class _UnsupportedBackendAudioPlayer implements BackendAudioPlayer {
     required String base64Audio,
     String mimeType = 'audio/mpeg',
   }) async {}
+
+  @override
+  Future<void> speakText(String text) async {}
 
   @override
   Future<void> dispose() async {}

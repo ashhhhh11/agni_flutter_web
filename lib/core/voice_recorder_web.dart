@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:developer';
 import 'dart:html' as html;
-import 'dart:js_util' as js_util;
-
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 export 'voice_recorder_stub.dart';
 import 'voice_recorder_stub.dart';
@@ -9,6 +13,8 @@ import 'voice_recorder_stub.dart';
 VoiceRecorder createVoiceRecorder() => _WebVoiceRecorder();
 
 class _WebVoiceRecorder implements VoiceRecorder {
+  static const int _targetSampleRate = 16000;
+
   html.MediaStream? _stream;
   html.MediaRecorder? _recorder;
   final List<html.Blob> _chunks = <html.Blob>[];
@@ -35,9 +41,11 @@ class _WebVoiceRecorder implements VoiceRecorder {
     _chunks.clear();
     _recorder = html.MediaRecorder(_stream!);
 
+    log('Voice recording started with MIME type: ${_recorder!.mimeType}');
+
     _onDataAvailable = (event) {
-      final blob = js_util.getProperty<Object?>(event, 'data');
-      if (blob is! html.Blob) return;
+      if (event is! html.BlobEvent) return;
+      final blob = event.data;
       if (blob != null && blob.size > 0) {
         _chunks.add(blob);
       }
@@ -88,29 +96,132 @@ class _WebVoiceRecorder implements VoiceRecorder {
 
     final mimeType = _recorder?.mimeType ?? 'audio/webm';
     final blob = html.Blob(_chunks, mimeType);
-    final reader = html.FileReader();
-    final completer = Completer<RecordedAudio?>();
+    try {
+      final compressedBytes = await _readBlobBytes(blob);
+      final pcmBytes = await _decodeTo16kMonoPcm(compressedBytes);
 
-    reader.onLoadEnd.listen((_) {
-      final result = reader.result;
-      if (result is! String || !result.contains(',')) {
-        completer.complete(null);
-        return;
-      }
-      final base64Data = result.split(',').last;
-      completer.complete(
-        RecordedAudio(
-          base64Data: base64Data,
-          mimeType: mimeType,
-          sizeBytes: blob.size,
-        ),
+      // ── NOTE: rawPcmBytes carries the decoded 16 kHz mono PCM.
+      //    Callers must use recorded.rawPcmBytes, NOT recorded.pcmBytes.
+      return RecordedAudio(
+        base64Data: base64Encode(compressedBytes),
+        mimeType: mimeType,
+        sizeBytes: pcmBytes.length,
+        rawPcmBytes: pcmBytes,
       );
+    } finally {
+      _stopTracks();
+    }
+  }
+
+  Future<Uint8List> _readBlobBytes(html.Blob blob) async {
+    final reader = html.FileReader();
+    final completer = Completer<Uint8List>();
+
+    late StreamSubscription loadSub;
+    late StreamSubscription errorSub;
+
+    loadSub = reader.onLoadEnd.listen((_) {
+      loadSub.cancel();
+      errorSub.cancel();
+
+      final result = reader.result;
+      if (result is String && result.contains(',')) {
+        completer.complete(base64Decode(result.split(',').last));
+      } else {
+        completer.completeError(
+          StateError('Recorded audio could not be read as a data URL.'),
+        );
+      }
+    });
+
+    errorSub = reader.onError.listen((_) {
+      loadSub.cancel();
+      errorSub.cancel();
+      completer.completeError(StateError('Unable to read recorded audio.'));
     });
 
     reader.readAsDataUrl(blob);
-    final recorded = await completer.future;
-    _stopTracks();
-    return recorded;
+    return completer.future;
+  }
+
+  Future<Uint8List> _decodeTo16kMonoPcm(Uint8List compressedBytes) async {
+    final browserWindow = JSObject.fromInteropObject(html.window);
+    final audioContextCtor =
+        browserWindow.getProperty<JSFunction?>('AudioContext'.toJS) ??
+            browserWindow.getProperty<JSFunction?>('webkitAudioContext'.toJS);
+    if (audioContextCtor == null) {
+      throw UnsupportedError('Web Audio API is unavailable in this browser.');
+    }
+
+    final audioContext = audioContextCtor.callAsConstructor<JSObject>();
+    try {
+      final decodedAudio = await audioContext
+          .callMethod<JSPromise<JSObject>>(
+            'decodeAudioData'.toJS,
+            compressedBytes.buffer.toJS,
+          )
+          .toDart;
+
+      final channelCount =
+          decodedAudio.getProperty<JSNumber>('numberOfChannels'.toJS).toDartInt;
+      final sourceLength =
+          decodedAudio.getProperty<JSNumber>('length'.toJS).toDartInt;
+      final sourceRate =
+          decodedAudio.getProperty<JSNumber>('sampleRate'.toJS).toDartDouble;
+
+      if (channelCount <= 0 || sourceLength <= 0 || sourceRate <= 0) {
+        return Uint8List(0);
+      }
+
+      final mono = Float32List(sourceLength);
+      for (var channel = 0; channel < channelCount; channel++) {
+        final samples = decodedAudio
+            .callMethod<JSFloat32Array>(
+              'getChannelData'.toJS,
+              channel.toJS,
+            )
+            .toDart;
+
+        for (var i = 0; i < sourceLength; i++) {
+          mono[i] += samples[i] / channelCount;
+        }
+      }
+
+      return _resampleAndEncodePcm16(mono, sourceRate, _targetSampleRate);
+    } finally {
+      if (audioContext.has('close')) {
+        audioContext.callMethod<JSAny?>('close'.toJS);
+      }
+    }
+  }
+
+  Uint8List _resampleAndEncodePcm16(
+    Float32List samples,
+    double sourceRate,
+    int targetRate,
+  ) {
+    final targetLength = math.max(
+      1,
+      (samples.length * targetRate / sourceRate).round(),
+    );
+    final pcm = Uint8List(targetLength * 2);
+    final data = ByteData.view(pcm.buffer);
+    final ratio = sourceRate / targetRate;
+
+    for (var i = 0; i < targetLength; i++) {
+      final sourceIndex = i * ratio;
+      final leftIndex = sourceIndex.floor().clamp(0, samples.length - 1);
+      final rightIndex = (leftIndex + 1).clamp(0, samples.length - 1);
+      final fraction = sourceIndex - leftIndex;
+      final sample = samples[leftIndex] +
+          (samples[rightIndex] - samples[leftIndex]) * fraction;
+      final clamped = sample.clamp(-1.0, 1.0);
+      final intSample =
+          clamped < 0 ? (clamped * 32768).round() : (clamped * 32767).round();
+      data.setInt16(i * 2, intSample, Endian.little);
+    }
+
+    return pcm;
   }
 
   void _stopTracks() {
