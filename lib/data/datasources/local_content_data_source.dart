@@ -1,4 +1,3 @@
-
 import '../../domain/entities/agni_content.dart';
 
 class LocalContentDataSource {
@@ -6,17 +5,37 @@ class LocalContentDataSource {
     const navItems = [''];
 
     const marqueeItems = [
-      'Wipro', 'Lumen', 'Modivcare', 'Quest', 'Carter Bank & Trust',
-      'Econet', 'Ethio Telecom', 'LTIMindtree', 'Tiger Analytics', 'Nextuple',
+      'Wipro',
+      'Lumen',
+      'Modivcare',
+      'Quest',
+      'Carter Bank & Trust',
+      'Econet',
+      'Ethio Telecom',
+      'LTIMindtree',
+      'Tiger Analytics',
+      'Nextuple',
     ];
 
     const heroLangs = [
-      'Agentic AI', 'RPA', 'Data & Analytics', 'QA', 'Super Apps',
-      'Cloud', 'Automation', 'Digital', 'Telecom', 'Banking'
+      'Agentic AI',
+      'RPA',
+      'Data & Analytics',
+      'QA',
+      'Super Apps',
+      'Cloud',
+      'Automation',
+      'Digital',
+      'Telecom',
+      'Banking'
     ];
 
     const tickerTags = [
-      'Banking', 'Telecom', 'Healthcare', 'Insurance', 'Retail',
+      'Banking',
+      'Telecom',
+      'Healthcare',
+      'Insurance',
+      'Retail',
     ];
 
     const stats = [
@@ -28,40 +47,33 @@ class LocalContentDataSource {
 
     const features = [
       FeatureItem(
-        '🤖',
-        'Agentic AI',
-        'Autonomous workflows, predictive insights, and conversational copilots for growth.',
-        'KYC · Marketing · Support · Collections',
+        '📡',
+        'Telecom Industry',
+        'Customer Support & Account Management\n'
+            'Technical Assistance & Troubleshooting\n'
+            'Proactive Customer Engagement (outage/data alerts)\n'
+            'Personalized Sales & Upselling\n'
+            'Self-Service Support Automation\n'
+            'Service Alerts & Notifications\n'
+            'Voice-Based Assistance with Real-Time Knowledge\n'
+            'Internal Service Desk Automation',
+        'End-to-end telecom CX automation',
       ),
       FeatureItem(
-        '🦾',
-        'Robotic Process Automation',
-        'Eliminate repetitive work with fast, error-free automations for ops and finance.',
-        '200+ processes automated',
+        '🏦',
+        'Financial Services',
+        'Collections & Payment Reminders\n'
+            'Account & Transaction Queries\n'
+            'Card, Loan & Credit Servicing\n'
+            'Human-like Voice Customer Support\n'
+            'Secure & Policy-Compliant Conversations',
+        'Secure servicing at scale',
       ),
       FeatureItem(
-        '📊',
-        'Data & Analytics',
-        'Modern data pipelines, ML models, and dashboards that turn raw data into clear decisions.',
-        '95% accuracy · real-time insights',
-      ),
-      FeatureItem(
-        '🧪',
-        'Automation Testing',
-        'Manual and automated QA across web, mobile, APIs with performance and security.',
-        'CI/CD ready · reliable releases',
-      ),
-      FeatureItem(
-        '🛠️',
-        'Custom Development',
-        'Cloud-ready apps, APIs, and integrations tailored to each business.',
-        'Secure · scalable · bespoke',
-      ),
-      FeatureItem(
-        '🌐',
-        'Super App Development',
-        'Unified digital ecosystems that bring multiple services into one seamless experience.',
-        'Omnichannel · loyalty · growth',
+        '🎓',
+        'Education',
+        'AI Tutor / Virtual Teaching Assistant for interactive, real-time learning.',
+        'Interactive, real-time learning support',
       ),
     ];
 
@@ -81,7 +93,8 @@ class LocalContentDataSource {
       ComparisonCardData(
         isOurs: true,
         badge: 'Technodysis',
-        headline: 'Agentic AI + automation built for Healthcare, Banking, Insurance, Telecom, Retail.',
+        headline:
+            'Agentic AI + automation built for Healthcare, Banking, Insurance, Telecom, Retail.',
         items: [
           'Domain-first accelerators and reusable workflows',
           'Agentic AI + RPA to 10x ROI in year one',
@@ -93,11 +106,21 @@ class LocalContentDataSource {
     ];
 
     const langPills = [
-      LangPill('Healthcare', 'ocean'), LangPill('Banking', 'ocean'), LangPill('Insurance', 'forest'),
-      LangPill('Telecom', ''), LangPill('Retail', ''), LangPill('Agentic AI', ''),
-      LangPill('RPA', 'ocean'), LangPill('Data & Analytics', ''), LangPill('Testing', ''),
-      LangPill('Custom Dev', ''), LangPill('Super Apps', ''), LangPill('Cloud', ''),
-      LangPill('USA', 'forest'), LangPill('India', 'forest'), LangPill('UK', 'forest'),
+      LangPill('Healthcare', 'ocean'),
+      LangPill('Banking', 'ocean'),
+      LangPill('Insurance', 'forest'),
+      LangPill('Telecom', ''),
+      LangPill('Retail', ''),
+      LangPill('Agentic AI', ''),
+      LangPill('RPA', 'ocean'),
+      LangPill('Data & Analytics', ''),
+      LangPill('Testing', ''),
+      LangPill('Custom Dev', ''),
+      LangPill('Super Apps', ''),
+      LangPill('Cloud', ''),
+      LangPill('USA', 'forest'),
+      LangPill('India', 'forest'),
+      LangPill('UK', 'forest'),
       LangPill('Africa', 'ocean'),
       LangPill('Austin', ''),
       LangPill('ME', 'ocean'),

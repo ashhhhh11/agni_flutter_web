@@ -5,10 +5,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/agni_colors.dart';
+import '../../core/contact_email.dart';
 import '../../core/conversation_download.dart';
 import '../../core/socket_service.dart';
 import '../controllers/voice_chat_controller.dart';
 import '../viewmodels/voice_chat_view_model.dart';
+import '../widgets/earth_globe_painter.dart';
 import '../../domain/entities/agni_content.dart';
 
 // ─── Video Player Widget ───────────────────────────────────────────────────────
@@ -211,12 +213,15 @@ class _AgniLandingPageState extends State<AgniLandingPage>
 
   Future<void> _downloadConversation() async {
     final visibleConversation = _voiceChatViewModel.visibleConversation;
-    if (visibleConversation.isEmpty) return;
 
     final buffer = StringBuffer()
       ..writeln('Technodysis Conversation Export')
       ..writeln('Generated: ${DateTime.now().toIso8601String()}')
       ..writeln();
+
+    if (visibleConversation.isEmpty) {
+      buffer.writeln('No conversation yet.');
+    }
 
     for (final message in visibleConversation) {
       final speaker = message.source == 'user' ? 'User' : 'Assistant';
@@ -236,7 +241,8 @@ class _AgniLandingPageState extends State<AgniLandingPage>
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Conversation download is only available in the web app.'),
+        content:
+            Text('Conversation download is only available in the web app.'),
       ),
     );
   }
@@ -614,165 +620,172 @@ class _AgniLandingPageState extends State<AgniLandingPage>
   Widget _buildPhoneMockup() {
     final isNarrow = MediaQuery.of(context).size.width < 1180;
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Container(
-          width: 340,
-          height: 500,
-          decoration: BoxDecoration(
-            color: isDark
-                ? const Color(0xFF08162A).withOpacity(0.80)
-                : Colors.white.withOpacity(0.72),
-            borderRadius: BorderRadius.circular(40),
-            border: Border.all(
-              color: isDark
-                  ? AgniColors.oceanBright.withOpacity(0.18)
-                  : Colors.white.withOpacity(0.90),
-              width: isDark ? 1 : 1.5,
-            ),
-            boxShadow: isDark
-                ? [
-                    BoxShadow(
-                        color: AgniColors.oceanBright.withOpacity(0.20),
-                        blurRadius: 80),
-                    BoxShadow(
-                        color: const Color(0xFF000000).withOpacity(0.40),
-                        blurRadius: 24,
-                        offset: const Offset(0, 24)),
-                  ]
-                : [
-                    BoxShadow(
-                        color: const Color(0xFF0A2342).withOpacity(0.22),
-                        blurRadius: 80,
-                        offset: const Offset(0, 20)),
-                  ],
-          ),
-          child: Stack(
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(40),
-                  gradient: LinearGradient(
-                    begin: const Alignment(-0.7, -0.9),
-                    end: const Alignment(1, 1),
-                    colors: isDark
-                        ? [
-                            AgniColors.oceanBright.withOpacity(0.06),
-                            AgniColors.forestLight.withOpacity(0.05),
-                          ]
-                        : [
-                            const Color(0xFFB4D7EB).withOpacity(0.22),
-                            const Color(0xFFB4E1C8).withOpacity(0.18),
-                          ],
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 16,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Container(
-                    width: 80,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? AgniColors.oceanBright.withOpacity(0.15)
-                          : AgniColors.oceanMid.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(100),
-                    ),
-                  ),
-                ),
-              ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 26),
-                  child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildTalkingAvatar(),
-                    const SizedBox(height: 14),
-                    _buildWaveform(),
-                    const SizedBox(height: 20),
-                    AnimatedOpacity(
-                      duration: const Duration(milliseconds: 400),
-                      opacity: _langOpacity,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 400),
-                        transform: Matrix4.translationValues(0, _langOffset, 0),
-                        child: Text(
-                          _langs[_langIndex],
-                          style: GoogleFonts.playfairDisplay(
-                            fontSize: 27.2,
-                            fontWeight: FontWeight.w700,
-                            color: textColor,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Agentic copilots · 24/7 uptime',
-                      style: GoogleFonts.dmMono(
-                        fontSize: 12.48,
-                        color: text3Color,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    GestureDetector(
-                      onTap: _onTapToTalk,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 28,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          gradient: AgniColors.grad,
-                          borderRadius: BorderRadius.circular(100),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AgniColors.oceanBright.withOpacity(
-                                isDark ? 0.35 : 0.28,
-                              ),
-                              blurRadius: 20,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Text(
-                          _voiceChatViewModel.state == VoiceChatState.processing
-                              ? '● Processing...'
-                              : _voiceChatViewModel.state == VoiceChatState.listening
-                                  ? '■ Tap to stop'
-                                  : '● Tap to talk',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13.6,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (isNarrow) ...[
-                      const SizedBox(height: 14),
-                      _buildConversationPanel(width: 280, height: 170),
-                    ],
-                  ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+    final phoneCard = Container(
+      width: 340,
+      height: 500,
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFF08162A).withOpacity(0.80)
+            : Colors.white.withOpacity(0.72),
+        borderRadius: BorderRadius.circular(40),
+        border: Border.all(
+          color: isDark
+              ? AgniColors.oceanBright.withOpacity(0.18)
+              : Colors.white.withOpacity(0.90),
+          width: isDark ? 1 : 1.5,
         ),
-        if (!isNarrow)
-          Positioned(
-            top: 05,
-            right: -520,
-            child: _buildConversationPanel(width: 500, height: 500),
+        boxShadow: isDark
+            ? [
+                BoxShadow(
+                    color: AgniColors.oceanBright.withOpacity(0.20),
+                    blurRadius: 80),
+                BoxShadow(
+                    color: const Color(0xFF000000).withOpacity(0.40),
+                    blurRadius: 24,
+                    offset: const Offset(0, 24)),
+              ]
+            : [
+                BoxShadow(
+                    color: const Color(0xFF0A2342).withOpacity(0.22),
+                    blurRadius: 80,
+                    offset: const Offset(0, 20)),
+              ],
+      ),
+      child: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(40),
+              gradient: LinearGradient(
+                begin: const Alignment(-0.7, -0.9),
+                end: const Alignment(1, 1),
+                colors: isDark
+                    ? [
+                        AgniColors.oceanBright.withOpacity(0.06),
+                        AgniColors.forestLight.withOpacity(0.05),
+                      ]
+                    : [
+                        const Color(0xFFB4D7EB).withOpacity(0.22),
+                        const Color(0xFFB4E1C8).withOpacity(0.18),
+                      ],
+              ),
+            ),
           ),
-      ],
+          Positioned(
+            top: 16,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                width: 80,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AgniColors.oceanBright.withOpacity(0.15)
+                      : AgniColors.oceanMid.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(100),
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 26),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildTalkingAvatar(),
+                  const SizedBox(height: 14),
+                  _buildWaveform(),
+                  const SizedBox(height: 20),
+                  AnimatedOpacity(
+                    duration: const Duration(milliseconds: 400),
+                    opacity: _langOpacity,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 400),
+                      transform: Matrix4.translationValues(0, _langOffset, 0),
+                      child: Text(
+                        _langs[_langIndex],
+                        style: GoogleFonts.playfairDisplay(
+                          fontSize: 27.2,
+                          fontWeight: FontWeight.w700,
+                          color: textColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Agentic copilots · 24/7 uptime',
+                    style: GoogleFonts.dmMono(
+                      fontSize: 12.48,
+                      color: text3Color,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  GestureDetector(
+                    onTap: _onTapToTalk,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 28,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: AgniColors.grad,
+                        borderRadius: BorderRadius.circular(100),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AgniColors.oceanBright.withOpacity(
+                              isDark ? 0.35 : 0.28,
+                            ),
+                            blurRadius: 20,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        _voiceChatViewModel.state == VoiceChatState.processing
+                            ? '● Processing...'
+                            : _voiceChatViewModel.state ==
+                                    VoiceChatState.listening
+                                ? '■ Tap to stop'
+                                : '● Tap to talk',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13.6,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (isNarrow) ...[
+                    const SizedBox(height: 14),
+                    _buildConversationPanel(width: 280, height: 170),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (isNarrow) return phoneCard;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 920),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            phoneCard,
+            const SizedBox(width: 40),
+            _buildConversationPanel(width: 500, height: 500),
+          ],
+        ),
+      ),
     );
   }
 
@@ -895,27 +908,26 @@ class _AgniLandingPageState extends State<AgniLandingPage>
       ),
       child: Column(
         children: [
-          if (visibleConversation.isNotEmpty)
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: _downloadConversation,
-                style: TextButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  foregroundColor:
-                      isDark ? AgniColors.oceanBright : AgniColors.oceanMid,
-                ),
-                icon: const Icon(Icons.download_rounded, size: 16),
-                label: Text(
-                  'Download',
-                  style: TextStyle(
-                    fontSize: width >= 300 ? 12.2 : 11,
-                    fontWeight: FontWeight.w600,
-                  ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: _downloadConversation,
+              style: TextButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                foregroundColor:
+                    isDark ? AgniColors.oceanBright : AgniColors.oceanMid,
+              ),
+              icon: const Icon(Icons.download_rounded, size: 16),
+              label: Text(
+                'Download',
+                style: TextStyle(
+                  fontSize: width >= 300 ? 12.2 : 11,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
+          ),
           Expanded(
             child: visibleConversation.isEmpty
                 ? Center(
@@ -965,7 +977,8 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                                           : Colors.white.withOpacity(0.75))),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
-                                color: _sourceColor(item.source).withOpacity(0.30),
+                                color:
+                                    _sourceColor(item.source).withOpacity(0.30),
                                 width: 0.8,
                               ),
                             ),
@@ -1451,27 +1464,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
               animation: _globeController,
               builder: (_, __) => Column(
                 children: [
-                  AnimatedBuilder(
-                    animation: _globeController,
-                    builder: (_, __) => CustomPaint(
-                      size: const Size(360, 360),
-                      painter: EarthGlobePainter(
-                        t: _globeController.value,
-                        isDark: isDark,
-                      ),
-                    ),
-                  ),
-                  Transform.translate(
-                    offset: const Offset(0, -10),
-                    child: Container(
-                      width: 360,
-                      height: 30,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(180),
-                        color: const Color(0xFF0A2342).withOpacity(0.18),
-                      ),
-                    ),
-                  ),
+                  WireframeDottedGlobe(size: 360, isDark: isDark),
                 ],
               ),
             ),
@@ -2341,6 +2334,30 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
   final emailController = TextEditingController();
 
   bool submitted = false;
+
+  Future<void> _submitContactForm() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final didSend = await composeContactEmail(
+      recipientEmail: emailController.text.trim(),
+      name: nameController.text.trim(),
+      phone: phoneController.text.trim(),
+      senderEmail: emailController.text.trim(),
+    );
+
+    if (!mounted) return;
+    if (didSend) {
+      setState(() => submitted = true);
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Unable to send email right now. Please try again.'),
+      ),
+    );
+  }
+
   String? validateName(String? value) {
     if (value == null || value.trim().isEmpty) {
       return "Full name is required";
@@ -2434,7 +2451,7 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
           style: TextStyle(color: Colors.white70, height: 1.5),
         ),
         const SizedBox(height: 24),
-        _gradientButton("Close", () {
+        _gradientButton("Close", () async {
           Navigator.pop(context);
         }),
       ],
@@ -2482,11 +2499,7 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
             validator: validateEmail,
           ),
           const SizedBox(height: 24),
-          _gradientButton("Submit", () {
-            if (_formKey.currentState!.validate()) {
-              setState(() => submitted = true);
-            }
-          }),
+          _gradientButton("Submit", _submitContactForm),
         ],
       ),
     );
@@ -2535,9 +2548,11 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
   }
 
   // 🎯 GRADIENT BUTTON
-  Widget _gradientButton(String text, VoidCallback onTap) {
+  Widget _gradientButton(String text, Future<void> Function() onTap) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        unawaited(onTap());
+      },
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 14),
