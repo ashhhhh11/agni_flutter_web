@@ -2332,6 +2332,7 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
   final nameController = TextEditingController();
   final phoneController = TextEditingController();
   final emailController = TextEditingController();
+  final descController = TextEditingController();
 
   bool submitted = false;
 
@@ -2339,10 +2340,10 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
     if (!_formKey.currentState!.validate()) return;
 
     final didSend = await composeContactEmail(
-      recipientEmail: emailController.text.trim(),
-      name: nameController.text.trim(),
-      phone: phoneController.text.trim(),
-      senderEmail: emailController.text.trim(),
+      recipientEmail: emailController.text,
+      name: nameController.text,
+      phone: phoneController.text,
+      description: descController.text,
     );
 
     if (!mounted) return;
@@ -2475,7 +2476,7 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
           ),
           const SizedBox(height: 6),
           const Text(
-            "We’ll reach out within 24 hours",
+            "We'll reach out within 24 hours",
             style: TextStyle(color: Colors.white60),
           ),
           const SizedBox(height: 24),
@@ -2498,7 +2499,61 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
             keyboard: TextInputType.emailAddress,
             validator: validateEmail,
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          // ✅ Description field
+          TextFormField(
+            controller: descController,
+            maxLines: 3,
+            style: const TextStyle(color: Colors.white),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return "Description is required";
+              }
+              return null;
+            },
+            decoration: InputDecoration(
+              hintText: "Description",
+              hintStyle: const TextStyle(color: Colors.white38),
+              filled: true,
+              fillColor: Colors.white.withOpacity(0.05),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(
+                  color: Colors.white.withOpacity(0.1),
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(
+                  color: Colors.white.withOpacity(0.1),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(
+                  color: Color(0xFF4EB3D3),
+                  width: 1.5,
+                ),
+              ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(
+                  color: Colors.redAccent,
+                  width: 1.2,
+                ),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(
+                  color: Colors.redAccent,
+                  width: 1.5,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           _gradientButton("Submit", _submitContactForm),
         ],
       ),

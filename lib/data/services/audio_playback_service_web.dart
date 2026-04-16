@@ -13,8 +13,7 @@ class _WebAudioPlaybackService implements AudioPlaybackService {
 
   final Queue<Uint8List> _queue = Queue<Uint8List>();
   final List<dynamic> _activeSources = <dynamic>[];
-  final _statusController =
-      StreamController<AudioPlaybackStatus>.broadcast();
+  final _statusController = StreamController<AudioPlaybackStatus>.broadcast();
 
   bool _isPlaying = false;
   bool _isDisposed = false;
@@ -46,9 +45,8 @@ class _WebAudioPlaybackService implements AudioPlaybackService {
 
     final state = js_util.getProperty(_audioContext, 'state');
     if (state == 'suspended') {
-      await js_util.promiseToFuture(
-        js_util.callMethod(_audioContext, 'resume', []),
-      );
+      await js_util
+          .promiseToFuture(js_util.callMethod(_audioContext, 'resume', []));
     }
 
     if (!isPlaying) {
@@ -176,7 +174,8 @@ class _WebAudioPlaybackService implements AudioPlaybackService {
     }
 
     js_util.callMethod(source, 'start', [_nextStartTime]);
-    _nextStartTime += (js_util.getProperty(buffer, 'duration') as num).toDouble();
+    _nextStartTime +=
+        (js_util.getProperty(buffer, 'duration') as num).toDouble();
 
     _activeSources.add(source);
     js_util.setProperty(
@@ -223,13 +222,16 @@ class _WebAudioPlaybackService implements AudioPlaybackService {
       'createBuffer',
       [1, floatArray.length, 16000],
     );
-    final channelData = js_util.callMethod(buffer, 'getChannelData', [0]) as Float32List;
+    final channelData =
+        js_util.callMethod(buffer, 'getChannelData', [0]) as Float32List;
     channelData.setAll(0, floatArray);
     return buffer;
   }
 
   bool _looksLikeContainerAudio(Uint8List bytes) {
-    return _looksLikeWave(bytes) || _looksLikeMpeg(bytes) || _looksLikeOgg(bytes);
+    return _looksLikeWave(bytes) ||
+        _looksLikeMpeg(bytes) ||
+        _looksLikeOgg(bytes);
   }
 
   bool _looksLikeWave(Uint8List bytes) {
@@ -241,8 +243,10 @@ class _WebAudioPlaybackService implements AudioPlaybackService {
   }
 
   bool _looksLikeMpeg(Uint8List bytes) {
-    final hasId3 =
-        bytes.length > 3 && bytes[0] == 0x49 && bytes[1] == 0x44 && bytes[2] == 0x33;
+    final hasId3 = bytes.length > 3 &&
+        bytes[0] == 0x49 &&
+        bytes[1] == 0x44 &&
+        bytes[2] == 0x33;
     final hasFrameSync =
         bytes.length > 2 && bytes[0] == 0xff && (bytes[1] & 0xe0) == 0xe0;
     return hasId3 || hasFrameSync;
@@ -290,9 +294,11 @@ class _WebAudioPlaybackService implements AudioPlaybackService {
     if (_audioContext != null) {
       final state = js_util.getProperty(_audioContext, 'state');
       if (state != 'closed') {
-        await js_util.promiseToFuture(
-          js_util.callMethod(_audioContext, 'close', []),
-        ).catchError((_) {});
+        await js_util
+            .promiseToFuture(
+              js_util.callMethod(_audioContext, 'close', []),
+            )
+            .catchError((_) {});
       }
       _audioContext = null;
     }

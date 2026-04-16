@@ -60,6 +60,7 @@ class VoiceChatController extends ChangeNotifier {
   String? _lastError;
   DateTime? _listeningStartedAt;
   bool _assistantAudioReceivedForTurn = false;
+  bool _isStoppingOrSending = false;
   bool _disposed = false;
 
   VoiceChatController({
@@ -74,8 +75,8 @@ class VoiceChatController extends ChangeNotifier {
         _silenceDetector = silenceDetector ??
             SilenceDetector(
               threshold: 0.015,
-              silenceDuration: const Duration(seconds: 8),
-              minActiveListening: const Duration(milliseconds: 2000),
+              silenceDuration: const Duration(milliseconds: 1800),
+              minActiveListening: const Duration(milliseconds: 1200),
             ),
         _recordConfig = recordConfig,
         _processingTimeout = processingTimeout,
@@ -98,22 +99,38 @@ class VoiceChatController extends ChangeNotifier {
   List<ChatMessage> get messages => List.unmodifiable(_messages);
 
   void _bindStreams() {
-    _subscriptions.add(_recordService.volumeStream.listen(_silenceDetector.updateVolume));
+    _subscriptions
+        .add(_recordService.volumeStream.listen(_silenceDetector.updateVolume));
     _subscriptions.add(_recordService.audioStream.listen(_onRecordedChunk));
-    _subscriptions.add(_socketService.partialTranscripts.listen(_handlePartialTranscript));
-    _subscriptions.add(_socketService.finalTranscripts.listen(_handleFinalTranscript));
-    _subscriptions.add(_socketService.assistantTextStream.listen(_handleAssistantText));
-    _subscriptions.add(_socketService.completionEvents.listen(_handleAssistantDone));
-    _subscriptions.add(_socketService.statusEvents.listen(_handleStatusMessage));
+    _subscriptions.add(
+        _socketService.partialTranscripts.listen(_handlePartialTranscript));
+    _subscriptions
+        .add(_socketService.finalTranscripts.listen(_handleFinalTranscript));
+    _subscriptions
+        .add(_socketService.assistantTextStream.listen(_handleAssistantText));
+    _subscriptions
+        .add(_socketService.completionEvents.listen(_handleAssistantDone));
+    _subscriptions
+        .add(_socketService.statusEvents.listen(_handleStatusMessage));
     _subscriptions.add(_socketService.errorEvents.listen(_handleSocketError));
-    _subscriptions.add(_socketService.audioChunks.listen(_handleBackendAudioChunk));
-    _subscriptions.add(_playbackService.statusStream.listen(_handlePlaybackStatus));
+    _subscriptions
+        .add(_socketService.audioChunks.listen(_handleBackendAudioChunk));
+    _subscriptions
+        .add(_playbackService.statusStream.listen(_handlePlaybackStatus));
   }
 
   Future<void> toggleListening() async {
     if (isListening) {
       await stopListeningAndSend();
       return;
+    }
+
+    if (isProcessing) {
+      _clearProcessingTimeout();
+      _isStoppingOrSending = false;
+      _socketService.sendInterrupt();
+      await _playbackService.interrupt();
+      _setState(VoiceChatState.idle);
     }
 
     if (canStartListening) {
@@ -129,6 +146,7 @@ class VoiceChatController extends ChangeNotifier {
 
     _lastError = null;
     _clearProcessingTimeout();
+    _socketService.sendInterrupt();
     await _playbackService.interrupt();
 
     final connected = await _socketService.ensureConnected();
@@ -143,6 +161,7 @@ class VoiceChatController extends ChangeNotifier {
       _latestTranscriptText = '';
       _latestAssistantText = '';
       _assistantAudioReceivedForTurn = false;
+      _isStoppingOrSending = false;
       _listeningStartedAt = DateTime.now();
       _silenceDetector.reset();
 
@@ -164,7 +183,8 @@ class VoiceChatController extends ChangeNotifier {
   }
 
   Future<void> stopListeningAndSend() async {
-    if (!isListening) return;
+    if (!isListening || _isStoppingOrSending) return;
+    _isStoppingOrSending = true;
 
     try {
       await _recordService.stop();
@@ -262,13 +282,13 @@ class VoiceChatController extends ChangeNotifier {
 
   void _handleAssistantDone(Map<String, dynamic> _) {
     _clearProcessingTimeout();
-    final shouldSpeakFullResponse =
-        _latestAssistantText.trim().isNotEmpty &&
+    final shouldSpeakFullResponse = _latestAssistantText.trim().isNotEmpty &&
         (_preferAssistantTextToSpeech ||
             !_assistantAudioReceivedForTurn ||
             !_playbackService.isPlaying);
     if (_currentAiTurnId != null) {
-      final index = _messages.indexWhere((message) => message.id == _currentAiTurnId);
+      final index =
+          _messages.indexWhere((message) => message.id == _currentAiTurnId);
       if (index != -1) {
         _messages[index] = _messages[index].copyWith(isPartial: false);
       }
@@ -335,7 +355,8 @@ class VoiceChatController extends ChangeNotifier {
 
     switch (status) {
       case AudioPlaybackStatus.playing:
-        if (_state == VoiceChatState.processing || _state == VoiceChatState.idle) {
+        if (_state == VoiceChatState.processing ||
+            _state == VoiceChatState.idle) {
           _setState(VoiceChatState.playing);
         }
         break;
@@ -372,7 +393,8 @@ class VoiceChatController extends ChangeNotifier {
         ChatMessage(
           id: 'timeout_${DateTime.now().millisecondsSinceEpoch}',
           source: 'system',
-          text: 'No response came back from the voice server. Please try again.',
+          text:
+              'No response came back from the voice server. Please try again.',
         ),
       );
       _setState(VoiceChatState.idle);

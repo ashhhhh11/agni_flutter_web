@@ -20,22 +20,42 @@ class VoiceSocketService {
       messages.where((message) => message['type'] == type);
 
   Stream<String> get partialTranscripts => messages
-      .where((message) => message['type'] == 'partial')
+      .where((message) {
+        final type = message['type']?.toString();
+        return type == 'partial' ||
+            type == 'transcript_partial' ||
+            type == 'partial_transcript';
+      })
       .map((message) => message['text']?.toString() ?? '')
       .where((text) => text.isNotEmpty);
 
   Stream<String> get finalTranscripts => messages
-      .where((message) => message['type'] == 'transcript')
+      .where((message) {
+        final type = message['type']?.toString();
+        return type == 'transcript' ||
+            type == 'final_transcript' ||
+            type == 'user_transcript';
+      })
       .map((message) => message['text']?.toString() ?? '')
       .where((text) => text.isNotEmpty);
 
   Stream<String> get assistantTextStream => messages
-      .where((message) => message['type'] == 'ai_stream')
+      .where((message) {
+        final type = message['type']?.toString();
+        return type == 'ai_stream' ||
+            type == 'assistant_text' ||
+            type == 'response_text_delta';
+      })
       .map((message) => message['text']?.toString() ?? '')
       .where((text) => text.isNotEmpty);
 
   Stream<Map<String, dynamic>> get completionEvents => messages.where(
-        (message) => message['type'] == 'ai_done',
+        (message) {
+          final type = message['type']?.toString();
+          return type == 'ai_done' ||
+              type == 'response_done' ||
+              type == 'assistant_done';
+        },
       );
 
   Stream<Map<String, dynamic>> get statusEvents => messages.where(
@@ -65,8 +85,11 @@ class VoiceSocketService {
     return _socket.sendJson(payload);
   }
 
+  void sendInterrupt() {
+    sendControlMessage('interrupt');
+  }
+
   void sendTurnStarted() {
-    sendControlMessage('start_listening');
     sendControlMessage('speech_start');
   }
 
@@ -80,10 +103,6 @@ class VoiceSocketService {
       if (speechDuration != null) 'duration_ms': speechDuration.inMilliseconds,
     };
 
-    sendControlMessage('status', {
-      'status': 'done',
-      ...base,
-    });
     sendControlMessage('speech_end', base);
     sendControlMessage('done', base);
     sendControlMessage('end_of_stream', base);
@@ -95,15 +114,10 @@ class VoiceSocketService {
       if (cleanedHint != null && cleanedHint.isNotEmpty) 'text': cleanedHint,
     };
 
-    sendControlMessage('generate', payload);
-    sendControlMessage('commit', payload);
-    sendControlMessage('response.create', payload);
-    sendControlMessage('generate_response', payload);
-
     if (payload.isNotEmpty) {
       sendControlMessage('transcript', payload);
-      sendControlMessage('user_message', payload);
     }
+    sendControlMessage('generate_response', payload);
   }
 
   void on(String type, void Function(Map<String, dynamic>) handler) {

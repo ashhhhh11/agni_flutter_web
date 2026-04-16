@@ -13,6 +13,7 @@ class _WebAudioRecordService implements AudioRecordService {
   dynamic _audioContext;
   dynamic _source;
   dynamic _processor;
+  dynamic _silenceGain;
 
   final _audioController = StreamController<AudioChunk>.broadcast();
   final _volumeController = StreamController<double>.broadcast();
@@ -43,7 +44,8 @@ class _WebAudioRecordService implements AudioRecordService {
   Stream<bool> get recordingStateStream => _recordingStateController.stream;
 
   @override
-  Future<void> start({AudioRecordConfig config = const AudioRecordConfig()}) async {
+  Future<void> start(
+      {AudioRecordConfig config = const AudioRecordConfig()}) async {
     if (!isSupported || _isRecording) return;
 
     _activeConfig = config;
@@ -87,8 +89,11 @@ class _WebAudioRecordService implements AudioRecordService {
       _processor = js_util.callMethod(
         _audioContext,
         'createScriptProcessor',
-        [4096, config.channels, config.channels],
+        [4096, config.channels, 1],
       );
+      _silenceGain = js_util.callMethod(_audioContext, 'createGain', []);
+      final gainParam = js_util.getProperty(_silenceGain, 'gain');
+      js_util.setProperty(gainParam, 'value', 0);
 
       _isRecording = true;
       _recordingStateController.add(true);
@@ -101,8 +106,8 @@ class _WebAudioRecordService implements AudioRecordService {
           final inputBuffer = js_util.getProperty(event, 'inputBuffer');
           if (inputBuffer == null) return;
 
-          final channelData =
-              js_util.callMethod(inputBuffer, 'getChannelData', [0]) as Float32List;
+          final channelData = js_util
+              .callMethod(inputBuffer, 'getChannelData', [0]) as Float32List;
           if (channelData.isEmpty) return;
 
           var sumSquares = 0.0;
@@ -112,7 +117,8 @@ class _WebAudioRecordService implements AudioRecordService {
           _volumeController.add(math.sqrt(sumSquares / channelData.length));
 
           final sampleRate =
-              (js_util.getProperty(inputBuffer, 'sampleRate') as num).toDouble();
+              (js_util.getProperty(inputBuffer, 'sampleRate') as num)
+                  .toDouble();
           final pcm16 = _resampleAndEncodePcm16(
             channelData,
             sampleRate,
@@ -124,8 +130,9 @@ class _WebAudioRecordService implements AudioRecordService {
       );
 
       js_util.callMethod(_source, 'connect', [_processor]);
+      js_util.callMethod(_processor, 'connect', [_silenceGain]);
       final destination = js_util.getProperty(_audioContext, 'destination');
-      js_util.callMethod(_processor, 'connect', [destination]);
+      js_util.callMethod(_silenceGain, 'connect', [destination]);
     } catch (error) {
       _isRecording = false;
       _recordingStateController.add(false);
@@ -268,18 +275,24 @@ class _WebAudioRecordService implements AudioRecordService {
     if (_source != null) {
       js_util.callMethod(_source, 'disconnect', []);
     }
+    if (_silenceGain != null) {
+      js_util.callMethod(_silenceGain, 'disconnect', []);
+    }
     if (_audioContext != null) {
       final state = js_util.getProperty(_audioContext, 'state');
       if (state != 'closed') {
-        await js_util.promiseToFuture(
-          js_util.callMethod(_audioContext, 'close', []),
-        ).catchError((_) {});
+        await js_util
+            .promiseToFuture(
+              js_util.callMethod(_audioContext, 'close', []),
+            )
+            .catchError((_) {});
       }
     }
 
     _stream?.getTracks().forEach((track) => track.stop());
     _processor = null;
     _source = null;
+    _silenceGain = null;
     _audioContext = null;
     _stream = null;
   }

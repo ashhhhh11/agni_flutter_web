@@ -1,34 +1,42 @@
 import 'dart:convert';
+
 import 'dart:html' as html;
 
 Future<bool> composeContactEmail({
   required String recipientEmail,
   required String name,
   required String phone,
-  required String senderEmail,
+  required String description,
 }) async {
   try {
-    final endpoint = 'https://formsubmit.co/ajax/$recipientEmail';
-    final payload = <String, dynamic>{
-      'name': name,
-      'phone': phone,
-      'email': senderEmail,
-      '_subject': 'New contact request',
-      'message': 'Hello all,\nA new contact request was submitted.',
-    };
+    if (recipientEmail.isEmpty || !recipientEmail.contains('@')) {
+      html.window.console.error('Invalid email: $recipientEmail');
+      return false;
+    }
 
-    final response = await html.HttpRequest.request(
+    const endpoint = 'http://192.168.0.115:8080/send-mail';
+
+    final request = await html.HttpRequest.request(
       endpoint,
       method: 'POST',
-      sendData: jsonEncode(payload),
-      requestHeaders: <String, String>{
+      sendData: jsonEncode({
+        'name': name,
+        'phone': phone,
+        'description': description,
+        'user_email': recipientEmail,
+      }),
+      requestHeaders: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
       },
     );
 
-    return response.status == 200;
-  } catch (_) {
+    print("STATUS: ${request.status}");
+    print("RESPONSE: ${request.responseText}");
+
+    final status = request.status ?? 0;
+    return status >= 200 && status < 300;
+  } catch (error) {
+    html.window.console.error('mail submit failed: $error');
     return false;
   }
 }
