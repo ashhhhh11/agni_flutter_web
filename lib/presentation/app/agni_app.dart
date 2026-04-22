@@ -4,7 +4,7 @@ import '../../domain/entities/agni_content.dart';
 import '../pages/landing_page.dart';
 import '../../core/socket_service.dart';
 
-const String _defaultWsUrl = 'ws://192.168.0.20:9876/new/ws';
+const String _defaultWsUrl = 'wss://demo.nitya.ai/new/ws';
 const String _envWsUrl = String.fromEnvironment('AGNI_WS_URL');
 final String _wsUrl = _envWsUrl.isEmpty ? _defaultWsUrl : _envWsUrl;
 
@@ -33,6 +33,7 @@ class _AgniAppState extends State<AgniApp> {
 
     // ── Diagnostics ──────────────────────────────────────────────────────────
     _socketService.messages.listen((msg) {
+      print("[AgniApp] Received message: $msg");
       _rxMsgCount += 1;
       final type = msg['type']?.toString() ?? 'unknown';
       final latency = msg['latency'];

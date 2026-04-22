@@ -82,7 +82,7 @@ class VoiceChatController extends ChangeNotifier {
         _processingTimeout = processingTimeout,
         _socketService = VoiceSocketService(socketService) {
     _bindStreams();
-    _silenceDetector.onSilenceDetected = _onSilenceDetected;
+    _silenceDetector.onSilenceDetected = null;
   }
 
   VoiceChatState get state => _state;
@@ -212,11 +212,11 @@ class VoiceChatController extends ChangeNotifier {
     _socketService.sendAudioChunk(chunk);
   }
 
-  void _onSilenceDetected() {
-    if (isListening) {
-      unawaited(stopListeningAndSend());
-    }
-  }
+  // void _onSilenceDetected() {
+  //   if (isListening) {
+  //     unawaited(stopListeningAndSend());
+  //   }
+  // }
 
   void _handlePartialTranscript(String text) {
     _latestTranscriptText = text;

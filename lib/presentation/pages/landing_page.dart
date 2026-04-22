@@ -111,7 +111,7 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
-      builder: (_) => _ContactFormDialog(),
+      builder: (_) => _ContactFormDialog(isDark: widget.isDark),
     );
   }
 
@@ -207,7 +207,12 @@ class _AgniLandingPageState extends State<AgniLandingPage>
     }
   }
 
+  /// Tap-to-talk handler.
+  /// - When idle or error  → starts listening.
+  /// - When listening      → stops (triggers processing).
+  /// - When processing/playing → does nothing (button is visually disabled).
   Future<void> _onTapToTalk() async {
+    if (!_voiceChatViewModel.isButtonEnabled) return;
     await _voiceChatViewModel.onTalkPressed();
   }
 
@@ -308,12 +313,14 @@ class _AgniLandingPageState extends State<AgniLandingPage>
 
   Widget _buildBackground() {
     return Positioned.fill(
-      child: AnimatedBuilder(
-        animation: _globeController,
-        builder: (_, __) => CustomPaint(
-          painter: BackgroundPainter(
-            isDark: isDark,
-            t: _globeController.value,
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: _globeController,
+          builder: (_, __) => CustomPaint(
+            painter: BackgroundPainter(
+              isDark: isDark,
+              t: _globeController.value,
+            ),
           ),
         ),
       ),
@@ -398,11 +405,13 @@ class _AgniLandingPageState extends State<AgniLandingPage>
         children: [
           AnimatedBuilder(
             animation: _globeController,
-            builder: (_, __) => CustomPaint(
-              size: const Size(720, 720),
-              painter: GlobeBgPainter(
-                isDark: isDark,
-                t: _globeController.value,
+            builder: (_, __) => IgnorePointer(
+              child: CustomPaint(
+                size: const Size(720, 720),
+                painter: GlobeBgPainter(
+                  isDark: isDark,
+                  t: _globeController.value,
+                ),
               ),
             ),
           ),
@@ -724,41 +733,45 @@ class _AgniLandingPageState extends State<AgniLandingPage>
                     ),
                   ),
                   const SizedBox(height: 20),
+                  // ─── TAP TO TALK BUTTON ────────────────────────────────
                   GestureDetector(
                     onTap: _onTapToTalk,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 28,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: AgniColors.grad,
-                        borderRadius: BorderRadius.circular(100),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AgniColors.oceanBright.withOpacity(
-                              isDark ? 0.35 : 0.28,
-                            ),
-                            blurRadius: 20,
-                            offset: const Offset(0, 4),
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 200),
+                      opacity: _voiceChatViewModel.isButtonEnabled ? 1.0 : 0.55,
+                      child: AbsorbPointer(
+                        absorbing: !_voiceChatViewModel.isButtonEnabled,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 28,
+                            vertical: 10,
                           ),
-                        ],
-                      ),
-                      child: Text(
-                        _voiceChatViewModel.state == VoiceChatState.processing
-                            ? '● Processing...'
-                            : _voiceChatViewModel.state ==
-                                    VoiceChatState.listening
-                                ? '■ Tap to stop'
-                                : '● Tap to talk',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13.6,
-                          fontWeight: FontWeight.w600,
+                          decoration: BoxDecoration(
+                            gradient: AgniColors.grad,
+                            borderRadius: BorderRadius.circular(100),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AgniColors.oceanBright.withOpacity(
+                                  isDark ? 0.35 : 0.28,
+                                ),
+                                blurRadius: 20,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Text(
+                            _voiceChatViewModel.talkButtonLabel,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13.6,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
+                  // ──────────────────────────────────────────────────────
                   if (isNarrow) ...[
                     const SizedBox(height: 14),
                     _buildConversationPanel(width: 280, height: 170),
@@ -2321,7 +2334,13 @@ class EarthGlobePainter extends CustomPainter {
       old.t != t || old.isDark != isDark;
 }
 
+// ─── Contact Form Dialog ──────────────────────────────────────────────────────
+
 class _ContactFormDialog extends StatefulWidget {
+  final bool isDark;
+
+  const _ContactFormDialog({required this.isDark});
+
   @override
   State<_ContactFormDialog> createState() => _ContactFormDialogState();
 }
@@ -2335,6 +2354,41 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
   final descController = TextEditingController();
 
   bool submitted = false;
+
+  // ─── Theme helpers ─────────────────────────────────────────────────────────
+  // In dark mode the page is dark, so the dialog flips to a light background
+  // to stand out. In light mode the page is light, so the dialog stays dark.
+  bool get _dialogIsLight => widget.isDark; // dialog inverts the page theme
+
+  Color get _dialogBg =>
+      _dialogIsLight ? const Color(0xFFF0F7FF) : const Color(0xFF08162A).withOpacity(0.95);
+
+  Color get _titleColor =>
+      _dialogIsLight ? const Color(0xFF071828) : Colors.white;
+
+  Color get _subtitleColor =>
+      _dialogIsLight ? const Color(0xFF3A6A8A) : Colors.white60;
+
+  Color get _inputTextColor =>
+      _dialogIsLight ? const Color(0xFF071828) : Colors.white;
+
+  Color get _hintColor =>
+      _dialogIsLight ? const Color(0xFF7A9AB0) : Colors.white38;
+
+  Color get _fieldFill =>
+      _dialogIsLight ? const Color(0xFFE4F0F8) : Colors.white.withOpacity(0.05);
+
+  Color get _enabledBorderColor =>
+      _dialogIsLight ? const Color(0xFFB4D7EB) : Colors.white.withOpacity(0.10);
+
+  Color get _dialogBorderColor =>
+      _dialogIsLight
+          ? const Color(0xFF4EB3D3).withOpacity(0.20)
+          : const Color(0xFF4EB3D3).withOpacity(0.25);
+
+  Color get _dialogShadowColor =>
+      const Color(0xFF4EB3D3).withOpacity(0.25);
+  // ───────────────────────────────────────────────────────────────────────────
 
   Future<void> _submitContactForm() async {
     if (!_formKey.currentState!.validate()) return;
@@ -2363,17 +2417,14 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
     if (value == null || value.trim().isEmpty) {
       return "Full name is required";
     }
-
     final parts = value.trim().split(" ");
     if (parts.length < 2) {
       return "Enter full name (first & last)";
     }
-
     final nameRegex = RegExp(r'^[a-zA-Z ]+$');
     if (!nameRegex.hasMatch(value)) {
       return "Only letters allowed";
     }
-
     return null;
   }
 
@@ -2381,12 +2432,10 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
     if (value == null || value.isEmpty) {
       return "Phone number is required";
     }
-
     final phoneRegex = RegExp(r'^[6-9]\d{9}$');
     if (!phoneRegex.hasMatch(value)) {
       return "Enter valid 10-digit number";
     }
-
     return null;
   }
 
@@ -2394,13 +2443,10 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
     if (value == null || value.isEmpty) {
       return "Email is required";
     }
-
     final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-
     if (!emailRegex.hasMatch(value)) {
       return "Enter valid email";
     }
-
     return null;
   }
 
@@ -2412,14 +2458,12 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
         width: 420,
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
-          color: const Color(0xFF08162A).withOpacity(0.85),
+          color: _dialogBg,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: const Color(0xFF4EB3D3).withOpacity(0.25),
-          ),
+          border: Border.all(color: _dialogBorderColor),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF4EB3D3).withOpacity(0.25),
+              color: _dialogShadowColor,
               blurRadius: 40,
               spreadRadius: 2,
             )
@@ -2430,26 +2474,25 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
     );
   }
 
-  // 🎯 SUCCESS VIEW
   Widget _successView() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         const Icon(Icons.check_circle, color: Color(0xFF52B788), size: 60),
         const SizedBox(height: 16),
-        const Text(
+        Text(
           "You're all set!",
           style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: _titleColor,
           ),
         ),
         const SizedBox(height: 10),
-        const Text(
+        Text(
           "Someone will get in touch with you shortly.",
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white70, height: 1.5),
+          style: TextStyle(color: _subtitleColor, height: 1.5),
         ),
         const SizedBox(height: 24),
         _gradientButton("Close", () async {
@@ -2459,32 +2502,27 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
     );
   }
 
-  // 🎯 FORM VIEW
   Widget _formView() {
     return Form(
       key: _formKey,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
+          Text(
             "Talk to an Expert",
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: _titleColor,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             "We'll reach out within 24 hours",
-            style: TextStyle(color: Colors.white60),
+            style: TextStyle(color: _subtitleColor),
           ),
           const SizedBox(height: 24),
-          _inputField(
-            "Full Name",
-            nameController,
-            validator: validateName,
-          ),
+          _inputField("Full Name", nameController, validator: validateName),
           const SizedBox(height: 14),
           _inputField(
             "Phone Number",
@@ -2500,11 +2538,10 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
             validator: validateEmail,
           ),
           const SizedBox(height: 12),
-          // ✅ Description field
           TextFormField(
             controller: descController,
             maxLines: 3,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: _inputTextColor),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
                 return "Description is required";
@@ -2513,43 +2550,33 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
             },
             decoration: InputDecoration(
               hintText: "Description",
-              hintStyle: const TextStyle(color: Colors.white38),
+              hintStyle: TextStyle(color: _hintColor),
               filled: true,
-              fillColor: Colors.white.withOpacity(0.05),
+              fillColor: _fieldFill,
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(
-                  color: Colors.white.withOpacity(0.1),
-                ),
+                borderSide: BorderSide(color: _enabledBorderColor),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(
-                  color: Colors.white.withOpacity(0.1),
-                ),
+                borderSide: BorderSide(color: _enabledBorderColor),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(
-                  color: Color(0xFF4EB3D3),
-                  width: 1.5,
-                ),
+                borderSide:
+                    const BorderSide(color: Color(0xFF4EB3D3), width: 1.5),
               ),
               errorBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(
-                  color: Colors.redAccent,
-                  width: 1.2,
-                ),
+                borderSide:
+                    const BorderSide(color: Colors.redAccent, width: 1.2),
               ),
               focusedErrorBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(
-                  color: Colors.redAccent,
-                  width: 1.5,
-                ),
+                borderSide:
+                    const BorderSide(color: Colors.redAccent, width: 1.5),
               ),
             ),
           ),
@@ -2560,7 +2587,6 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
     );
   }
 
-  // 🎯 PREMIUM INPUT FIELD
   Widget _inputField(
     String label,
     TextEditingController controller, {
@@ -2570,39 +2596,31 @@ class _ContactFormDialogState extends State<_ContactFormDialog> {
     return TextFormField(
       controller: controller,
       keyboardType: keyboard,
-      style: const TextStyle(color: Colors.white),
+      style: TextStyle(color: _inputTextColor),
       validator: validator,
       decoration: InputDecoration(
         hintText: label,
-        hintStyle: const TextStyle(color: Colors.white38),
+        hintStyle: TextStyle(color: _hintColor),
         filled: true,
-        fillColor: Colors.white.withOpacity(0.05),
+        fillColor: _fieldFill,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: Colors.white.withOpacity(0.1),
-          ),
+          borderSide: BorderSide(color: _enabledBorderColor),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(
-            color: Colors.white.withOpacity(0.1),
-          ),
+          borderSide: BorderSide(color: _enabledBorderColor),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(
-            color: Color(0xFF4EB3D3),
-            width: 1.5,
-          ),
+          borderSide: const BorderSide(color: Color(0xFF4EB3D3), width: 1.5),
         ),
       ),
     );
   }
 
-  // 🎯 GRADIENT BUTTON
   Widget _gradientButton(String text, Future<void> Function() onTap) {
     return GestureDetector(
       onTap: () {

@@ -14,7 +14,7 @@ Future<bool> composeContactEmail({
       return false;
     }
 
-    const endpoint = 'http://192.168.0.115:8080/send-mail';
+    const endpoint = 'https://demo.nitya.ai/send-mail';
 
     final request = await html.HttpRequest.request(
       endpoint,
